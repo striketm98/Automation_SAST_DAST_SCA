@@ -25,25 +25,25 @@ unset($_SESSION['auth_error']);
   <main class="login-shell">
     <section class="login-hero">
       <div class="brand-lockup">
-        <img src="assets/img/favicon.ico" alt="cyber-Security logo" class="brand-mark">
+        <img src="assets/img/cyber-logo.png" alt="cyber-Security logo" class="brand-mark">
         <div>
-          <p class="eyebrow">cyber-Security platform</p>
-          <h1>Secure client reporting, styled like an executive product.</h1>
-          <p class="subhead">Log in to review SAST, DAST, SonarQube, ZAP, and dependency-risk findings in one polished dashboard.</p>
+          <p class="eyebrow">cyber-Security intelligence platform</p>
+          <h1>Executive-ready cyber reporting in one secure workspace.</h1>
+          <p class="subhead">Access a refined dashboard for SAST, DAST, SonarQube, ZAP, and dependency-risk oversight, designed for both leadership and delivery teams.</p>
         </div>
       </div>
       <div class="login-metrics">
-        <div><strong>01</strong><span>Unified report center</span></div>
-        <div><strong>02</strong><span>Client-facing UI</span></div>
-        <div><strong>03</strong><span>MySQL-backed records</span></div>
+        <div><strong>01</strong><span>Unified reporting</span></div>
+        <div><strong>02</strong><span>Client-ready UI</span></div>
+        <div><strong>03</strong><span>Structured review history</span></div>
       </div>
     </section>
 
     <section class="login-card">
       <div class="login-card-head">
-        <span class="pill pill-success">Welcome back</span>
+        <span class="pill pill-success">Secure access</span>
         <h2>Sign in</h2>
-        <p>Use the demo account below to get started.</p>
+        <p>Use your assigned credentials to review findings and reports.</p>
       </div>
 
       <?php if ($error): ?>

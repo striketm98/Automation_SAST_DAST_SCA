@@ -1,28 +1,20 @@
-# 🛡️ Cyber-Security Dashboard
+# cyber-Security
 
-> **Enterprise-Grade Security Audit & Compliance Reporting Platform**
+Client-facing PHP dashboard for consolidating:
 
----
+- SAST results
+- DAST results
+- SonarQube quality metrics
+- OWASP ZAP findings
+- Dependency-check / SCA results
 
-## Overview
+## What this repo provides
 
-Professional client-facing PHP dashboard for consolidating:
-
-- ✅ **SAST** - Static Application Security Testing results
-- ✅ **DAST** - Dynamic Application Security Testing results
-- ✅ **SonarQube** - Quality metrics & code analysis
-- ✅ **OWASP ZAP** - Web application security findings
-- ✅ **Dependency-Check / SCA** - Software composition analysis
-
----
-
-## 📦 What This Platform Provides
-
-- 🎨 **Modern Responsive UI** - Professional PHP dashboard with HTML5, CSS3, and JavaScript
-- 💾 **Secure Data Storage** - MySQL-backed database for projects, scans, and findings
-- 📊 **Unified Reporting** - Comprehensive dashboard with summary cards, risk breakdowns, and export options
-- 🐳 **Docker Stack** - Complete containerized environment: App, MySQL, SonarQube, ZAP, and Dependency-Check
-- 🔐 **Enterprise Security** - Role-based access control with secure authentication
+- Modern PHP UI with HTML, CSS, and JavaScript
+- MySQL-backed storage for projects, scans, and findings
+- A unified report page with summary cards, risk breakdowns, and export options
+- Docker Compose stack for the app, MySQL, SonarQube, ZAP, and Dependency-Check
+- Login-gated access with a demo admin account
 
 ## Run it
 

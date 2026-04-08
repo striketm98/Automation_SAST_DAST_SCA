@@ -58,10 +58,10 @@ $user = currentUser();
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand-lockup sidebar-brand">
-        <img src="assets/img/favicon.ico" alt="cyber-Security logo" class="brand-mark">
+        <img src="assets/img/cyber-logo.png" alt="cyber-Security logo" class="brand-mark">
         <div>
           <p class="eyebrow">cyber-Security</p>
-          <strong>Security Console</strong>
+          <strong>Intelligence Console</strong>
         </div>
       </div>
       <nav class="side-nav">
@@ -92,13 +92,13 @@ $user = currentUser();
 
       <section class="hero-strip">
         <div>
-          <p class="eyebrow">Unified security visibility</p>
+          <p class="eyebrow">Executive security visibility</p>
           <h1><?= e($project['name'] ?? 'Security Program') ?></h1>
-          <p class="subhead">A premium reporting workspace for SAST, DAST, SonarQube, OWASP ZAP, and dependency analysis.</p>
+          <p class="subhead">A premium reporting workspace for application security, code quality, and dependency risk, built for fast decisions and clear client communication.</p>
         </div>
         <div class="hero-actions">
-          <a class="button ghost" href="report.php">Open report</a>
-          <a class="button" href="import.php">Import results</a>
+          <a class="button ghost" href="report.php">View report</a>
+          <a class="button" href="import.php">Import findings</a>
         </div>
       </section>
 
@@ -106,7 +106,7 @@ $user = currentUser();
         <article class="panel metric-panel">
           <div class="panel-header">
             <h3>Open findings</h3>
-            <span class="muted">Across all tools</span>
+            <span class="muted">Across all assessments</span>
           </div>
           <strong class="metric-value"><?= (int) $summary['open_findings'] ?></strong>
           <div class="mini-chart mini-a"></div>
@@ -126,7 +126,7 @@ $user = currentUser();
 
         <article class="panel chart-panel">
           <div class="panel-header">
-            <h3>Threat trend</h3>
+            <h3>Risk trend</h3>
             <span class="muted">Last 6 scans</span>
           </div>
           <div class="line-grid">
@@ -155,7 +155,7 @@ $user = currentUser();
         <article class="panel wide">
           <div class="panel-header">
             <h3>Recent scans</h3>
-            <span class="muted">SonarQube, ZAP, and dependency-check are normalized into the same view</span>
+            <span class="muted">SonarQube, ZAP, and dependency-check are normalized into one timeline</span>
           </div>
           <div class="activity-list">
             <?php foreach ($scanRuns as $run): ?>

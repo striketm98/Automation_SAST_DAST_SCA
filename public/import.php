@@ -68,8 +68,8 @@ if ($pdo) {
     <header class="topbar">
       <div>
         <p class="eyebrow">cyber-Security import</p>
-        <h1>Bring scanner output into one report</h1>
-        <p class="subhead">Paste normalized JSON from SonarQube, ZAP, dependency-check, or your internal SAST tooling.</p>
+        <h1>Import scan results with confidence</h1>
+        <p class="subhead">Paste normalized JSON from SonarQube, ZAP, dependency-check, or your internal SAST tooling to keep every finding in one governed record.</p>
       </div>
       <div class="topbar-actions">
         <a class="button ghost" href="index.php">Dashboard</a>

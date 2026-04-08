@@ -53,10 +53,10 @@ $open = count($findings);
   <div class="page-shell report-shell">
     <header class="report-header">
       <div class="brand-lockup">
-        <img src="assets/img/favicon.ico" alt="cyber-Security logo" class="brand-mark">
+        <img src="assets/img/cyber-logo.png" alt="cyber-Security logo" class="brand-mark">
         <p class="eyebrow">Executive security report</p>
         <h1><?= e((string) $project['name']) ?></h1>
-        <p class="subhead">Prepared for <?= e((string) $project['client_name']) ?>. This consolidated report combines code quality, application security, and dependency risk into one view.</p>
+        <p class="subhead">Prepared for <?= e((string) $project['client_name']) ?>. This consolidated report brings together application security, code quality, and dependency risk in a single decision-ready view.</p>
       </div>
       <div class="report-actions">
         <button class="button ghost" onclick="window.print()">Print / PDF</button>
@@ -84,8 +84,8 @@ $open = count($findings);
       <div class="scope-grid">
         <div><span>Repository</span><strong><?= e((string) ($project['repository_url'] ?? 'n/a')) ?></strong></div>
         <div><span>Target</span><strong><?= e((string) ($project['target_url'] ?? 'n/a')) ?></strong></div>
-        <div><span>Coverage model</span><strong>SAST + DAST + SonarQube + SCA</strong></div>
-        <div><span>Delivery</span><strong>HTML report, printable view, MySQL archive</strong></div>
+        <div><span>Coverage model</span><strong>SAST, DAST, SonarQube, ZAP, and SCA</strong></div>
+        <div><span>Delivery</span><strong>HTML report, printable view, and MySQL archive</strong></div>
       </div>
     </section>
 
@@ -104,7 +104,7 @@ $open = count($findings);
     <section class="panel wide">
       <div class="panel-header">
         <h3>Findings</h3>
-        <span class="muted">Use the review box to mark false positives, add comments, and store AI notes.</span>
+        <span class="muted">Use the review panel to mark false positives, add comments, and store AI notes.</span>
       </div>
       <div class="report-findings">
         <?php foreach ($findings as $finding): ?>

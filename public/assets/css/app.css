@@ -352,6 +352,12 @@ body {
   margin-bottom: 28px;
 }
 
+.sidebar-brand strong,
+.brand-lockup strong {
+  font-size: 1.02rem;
+  letter-spacing: 0.02em;
+}
+
 .brand-lockup {
   display: flex;
   align-items: center;
@@ -359,11 +365,13 @@ body {
 }
 
 .brand-mark {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
   object-fit: cover;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  background: #050a0f;
+  padding: 4px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(255,255,255,0.06) inset;
 }
 
 .side-nav {
@@ -488,6 +496,10 @@ body {
     radial-gradient(circle at top right, rgba(105,210,255,0.16), transparent 25%);
   border: 1px solid rgba(154, 189, 255, 0.12);
   box-shadow: var(--shadow);
+}
+
+.hero-strip h1 {
+  max-width: 11ch;
 }
 
 .hero-actions {
@@ -657,6 +669,10 @@ body {
   flex-direction: column;
   justify-content: space-between;
   min-height: 560px;
+}
+
+.login-hero h1 {
+  max-width: 13ch;
 }
 
 .login-metrics {
