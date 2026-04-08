@@ -63,6 +63,8 @@ unset($_SESSION['auth_error']);
         <button class="button login-button" type="submit">Login</button>
       </form>
       <p class="login-foot">Demo account: <strong>admin@cyber-security.local</strong></p>
+      <p class="login-foot">All demo users share the password: <strong>ChangeMe123!</strong></p>
+      <p class="login-foot">Other demo users: manager@cyber-security.local, analyst@cyber-security.local, client@cyber-security.local</p>
     </section>
   </main>
 </body>

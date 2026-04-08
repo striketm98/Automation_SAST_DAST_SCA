@@ -42,6 +42,7 @@ Other demo users:
 - `manager@cyber-security.local`
 - `analyst@cyber-security.local`
 - `client@cyber-security.local`
+- Password for all demo users: `ChangeMe123!`
 
 Add-ons:
 

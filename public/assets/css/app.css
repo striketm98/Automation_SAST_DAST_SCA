@@ -384,13 +384,18 @@ body {
 }
 
 .brand-mark {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   border-radius: 16px;
-  object-fit: cover;
+  object-fit: contain;
   background: #050a0f;
-  padding: 4px;
+  padding: 3px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(255,255,255,0.06) inset;
+}
+
+.brand-mark.hero-mark {
+  width: 64px;
+  height: 64px;
 }
 
 .side-nav {
@@ -694,6 +699,12 @@ body {
   max-width: 13ch;
 }
 
+.login-hero .brand-mark {
+  width: 84px;
+  height: 84px;
+  border-radius: 20px;
+}
+
 .login-metrics {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -778,6 +789,7 @@ body {
   .login-shell { width: min(100%, calc(100% - 18px)); }
   .login-card { padding: 20px; }
   .login-hero { padding: 20px; }
+  .login-hero .brand-mark { width: 70px; height: 70px; }
   .login-metrics { gap: 10px; }
   .review-form { grid-template-columns: 1fr; }
   .review-actions { justify-content: stretch; }
