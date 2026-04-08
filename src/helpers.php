@@ -369,9 +369,43 @@ function findIntegrationForScan(array $integrations, string $scanKind): ?array
     return null;
 }
 
-function triggerScanFromUi(PDO $pdo, int $projectId, string $scanKind, string $targetUrl, string $sourceUrl, array $integrations): array
+function integrationBaseUrlForRuntime(array $integration, string $scanKind): string
 {
     $scanKind = strtolower(trim($scanKind));
+    $base = trim((string) ($integration['api_base_url'] ?? $integration['endpoint_url'] ?? ''));
+    $connectionType = strtolower((string) ($integration['connection_type'] ?? ''));
+    $profile = strtolower((string) ($integration['integration_profile'] ?? ''));
+
+    $fallbackByProfile = [
+        'zap' => 'http://zap:8090',
+        'sonarqube' => 'http://sonarqube:9000',
+        'mobsf' => 'http://mobsf:8000',
+    ];
+    $fallbackByKind = [
+        'dast' => 'http://zap:8090',
+        'sast' => 'http://sonarqube:9000',
+        'mobile' => 'http://mobsf:8000',
+    ];
+
+    if ($connectionType === 'docker') {
+        $host = '';
+        if ($base !== '') {
+            $parsedHost = parse_url($base, PHP_URL_HOST);
+            $host = is_string($parsedHost) ? strtolower(trim($parsedHost)) : '';
+        }
+        if ($base === '' || $host === 'localhost' || $host === '127.0.0.1') {
+            $base = $fallbackByProfile[$profile] ?? ($fallbackByKind[$scanKind] ?? $base);
+        }
+    }
+
+    return rtrim($base, '/');
+}
+
+function triggerScanFromUi(PDO $pdo, int $projectId, string $scanKind, string $targetUrl, string $sourceUrl, array $integrations, array $sourceMeta = []): array
+{
+    $scanKind = strtolower(trim($scanKind));
+    $sourceMode = (string) ($sourceMeta['source_mode'] ?? ($sourceUrl !== '' ? 'url' : 'manual'));
+    $artifactPath = trim((string) ($sourceMeta['artifact_path'] ?? ''));
     $scanType = match ($scanKind) {
         'sast' => 'sonarqube',
         'sca' => 'sca',
@@ -392,11 +426,21 @@ function triggerScanFromUi(PDO $pdo, int $projectId, string $scanKind, string $t
     $actor = (string) (currentUser()['email'] ?? 'system');
 
     $summary = sprintf(
-        '%s scan initiated from UI by %s. Target: %s',
+        '%s scan initiated from UI by %s. Target: %s. Source: %s',
         $toolLabel,
         $actor,
-        $targetUrl !== '' ? $targetUrl : 'n/a'
+        $targetUrl !== '' ? $targetUrl : 'n/a',
+        $sourceUrl !== '' ? $sourceUrl : ($artifactPath !== '' ? $artifactPath : 'n/a')
     );
+
+    if (in_array($scanKind, ['sast', 'mobile'], true) && $sourceUrl === '' && $artifactPath === '') {
+        return [
+            'ok' => false,
+            'message' => $toolLabel . ' requires a GitHub/source URL or uploaded ZIP/APK file.',
+            'scan_run_id' => 0,
+            'job_id' => 0,
+        ];
+    }
 
     $scanStmt = $pdo->prepare('INSERT INTO scan_runs (project_id, scan_type, tool_name, status, started_at, summary, raw_payload) VALUES (?, ?, ?, ?, NOW(), ?, ?)');
     $scanStmt->execute([
@@ -405,7 +449,13 @@ function triggerScanFromUi(PDO $pdo, int $projectId, string $scanKind, string $t
         $toolName,
         'queued',
         $summary,
-        json_encode(['scan_kind' => $scanKind, 'target_url' => $targetUrl, 'source_url' => $sourceUrl], JSON_UNESCAPED_SLASHES),
+        json_encode([
+            'scan_kind' => $scanKind,
+            'target_url' => $targetUrl,
+            'source_url' => $sourceUrl,
+            'source_mode' => $sourceMode,
+            'artifact_path' => $artifactPath !== '' ? $artifactPath : null,
+        ], JSON_UNESCAPED_SLASHES),
     ]);
     $scanRunId = (int) $pdo->lastInsertId();
 
@@ -415,6 +465,8 @@ function triggerScanFromUi(PDO $pdo, int $projectId, string $scanKind, string $t
         'scan_kind' => $scanKind,
         'target_url' => $targetUrl,
         'source_url' => $sourceUrl,
+        'source_mode' => $sourceMode,
+        'artifact_path' => $artifactPath !== '' ? $artifactPath : null,
         'requested_by' => $actor,
     ];
 
@@ -440,7 +492,7 @@ function triggerScanFromUi(PDO $pdo, int $projectId, string $scanKind, string $t
         ];
     }
 
-    $base = trim((string) ($integration['api_base_url'] ?? $integration['endpoint_url'] ?? ''));
+    $base = integrationBaseUrlForRuntime($integration, $scanKind);
     $submitPath = trim((string) ($integration['scan_submit_url'] ?? ''));
     if ($base === '') {
         return [
@@ -451,17 +503,52 @@ function triggerScanFromUi(PDO $pdo, int $projectId, string $scanKind, string $t
         ];
     }
 
-    $submitUrl = rtrim($base, '/');
-    if ($submitPath !== '') {
-        $submitUrl .= '/' . ltrim($submitPath, '/');
+    $submitUrl = $base;
+    $requestMethod = 'POST';
+    $requestBody = json_encode($requestPayload, JSON_UNESCAPED_SLASHES);
+    $requestHeader = "Content-Type: application/json\r\n";
+
+    if ($scanKind === 'dast') {
+        $target = trim($targetUrl !== '' ? $targetUrl : $sourceUrl);
+        if ($target === '') {
+            return [
+                'ok' => true,
+                'message' => 'DAST scan queued. Set Target URL first so OWASP ZAP can start.',
+                'scan_run_id' => $scanRunId,
+                'job_id' => $jobId,
+            ];
+        }
+        $zapPath = '/JSON/ascan/action/scan/';
+        if ($submitPath !== '') {
+            $candidate = strtolower($submitPath);
+            if (str_contains($candidate, '/json/spider/action/scan/')) {
+                $zapPath = '/JSON/ascan/action/scan/';
+            } else {
+                $zapPath = $submitPath;
+            }
+        }
+        $submitUrl = rtrim($base, '/') . '/' . ltrim($zapPath, '/');
+        $separator = str_contains($submitUrl, '?') ? '&' : '?';
+        $submitUrl .= $separator . http_build_query([
+            'url' => $target,
+            'recurse' => 'true',
+            'inScopeOnly' => 'false',
+        ]);
+        $requestMethod = 'GET';
+        $requestBody = '';
+        $requestHeader = '';
+    } else {
+        if ($submitPath !== '') {
+            $submitUrl = rtrim($base, '/') . '/' . ltrim($submitPath, '/');
+        }
     }
 
     $context = stream_context_create([
         'http' => [
-            'method' => 'POST',
-            'header' => "Content-Type: application/json\r\n",
-            'content' => json_encode($requestPayload, JSON_UNESCAPED_SLASHES),
-            'timeout' => 4,
+            'method' => $requestMethod,
+            'header' => $requestHeader,
+            'content' => $requestBody,
+            'timeout' => 8,
             'ignore_errors' => true,
         ],
     ]);
@@ -662,10 +749,10 @@ function sampleDashboard(): array
             ['tool_name' => 'Dependency-Check', 'scan_type' => 'sca', 'status' => 'completed', 'summary' => 'Open-source dependency review completed.', 'completed_at' => '2026-04-07 18:20:00'],
         ],
         'integrations' => [
-            ['name' => 'MobSF', 'vendor_name' => 'MobSF', 'integration_profile' => 'mobsf', 'type' => 'scanner', 'tool_category' => 'mobile', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://localhost:8000', 'api_base_url' => 'http://localhost:8000', 'scan_submit_url' => '/api/v1/scan', 'result_url' => '/api/v1/report', 'auth_type' => 'token', 'documentation_url' => 'https://github.com/MobSF/docs', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Mobile application static and dynamic analysis add-on.'],
+            ['name' => 'MobSF', 'vendor_name' => 'MobSF', 'integration_profile' => 'mobsf', 'type' => 'scanner', 'tool_category' => 'mobile', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://mobsf:8000', 'api_base_url' => 'http://mobsf:8000', 'scan_submit_url' => '/api/v1/scan', 'result_url' => '/api/v1/report', 'auth_type' => 'token', 'documentation_url' => 'https://github.com/MobSF/docs', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Mobile application static and dynamic analysis add-on.'],
             ['name' => 'OASM Assistant', 'vendor_name' => 'cyber-Security', 'integration_profile' => 'oasm-assistant', 'type' => 'assistant', 'tool_category' => 'assistant', 'connection_type' => 'api', 'status' => 'configured', 'endpoint_url' => 'https://oasm.example.local', 'api_base_url' => 'https://oasm.example.local', 'scan_submit_url' => '/api/summary', 'result_url' => '/api/assets', 'auth_type' => 'bearer', 'documentation_url' => '', 'last_test_status' => 'unknown', 'last_test_detail' => 'No test result yet', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Intelligence assistant integration for threat triage and guidance.'],
-            ['name' => 'OWASP ZAP', 'vendor_name' => 'OWASP', 'integration_profile' => 'zap', 'type' => 'scanner', 'tool_category' => 'dast', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://localhost:8090', 'api_base_url' => 'http://localhost:8090', 'scan_submit_url' => '/JSON/spider/action/scan/', 'result_url' => '/JSON/core/view/alerts/', 'auth_type' => 'none', 'documentation_url' => 'https://www.zaproxy.org/docs/', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Dynamic application security testing engine for baseline and authenticated scans.'],
-            ['name' => 'SonarQube', 'vendor_name' => 'SonarSource', 'integration_profile' => 'sonarqube', 'type' => 'scanner', 'tool_category' => 'sast', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://localhost:9000', 'api_base_url' => 'http://localhost:9000', 'scan_submit_url' => '/api/issues/search', 'result_url' => '/api/measures/component', 'auth_type' => 'token', 'documentation_url' => 'https://docs.sonarsource.com/', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Source-code quality and static analysis platform.'],
+            ['name' => 'OWASP ZAP', 'vendor_name' => 'OWASP', 'integration_profile' => 'zap', 'type' => 'scanner', 'tool_category' => 'dast', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://zap:8090', 'api_base_url' => 'http://zap:8090', 'scan_submit_url' => '/JSON/ascan/action/scan/', 'result_url' => '/JSON/core/view/alerts/', 'auth_type' => 'none', 'documentation_url' => 'https://www.zaproxy.org/docs/', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Dynamic application security testing engine for baseline and authenticated scans.'],
+            ['name' => 'SonarQube', 'vendor_name' => 'SonarSource', 'integration_profile' => 'sonarqube', 'type' => 'scanner', 'tool_category' => 'sast', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://sonarqube:9000', 'api_base_url' => 'http://sonarqube:9000', 'scan_submit_url' => '/api/issues/search', 'result_url' => '/api/measures/component', 'auth_type' => 'token', 'documentation_url' => 'https://docs.sonarsource.com/', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Source-code quality and static analysis platform.'],
             ['name' => 'Dependency-Check', 'vendor_name' => 'OWASP', 'integration_profile' => 'dependency-check', 'type' => 'scanner', 'tool_category' => 'sca', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://localhost:3300', 'api_base_url' => 'http://localhost:3300', 'scan_submit_url' => '/api/report', 'result_url' => '/api/report', 'auth_type' => 'none', 'documentation_url' => 'https://jeremylong.github.io/DependencyCheck/', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Open-source dependency and vulnerability analysis.'],
             ['name' => 'sqlmap', 'vendor_name' => 'sqlmap', 'integration_profile' => 'sqlmap', 'type' => 'scanner', 'tool_category' => 'pentest', 'connection_type' => 'python', 'status' => 'configured', 'endpoint_url' => 'http://localhost:6000', 'api_base_url' => 'http://localhost:6000', 'scan_submit_url' => '/run', 'result_url' => '/results', 'auth_type' => 'token', 'documentation_url' => 'https://sqlmap.org/', 'last_test_status' => 'unknown', 'last_test_detail' => 'No test result yet', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Authorized SQL injection testing container for controlled assessments.'],
             ['name' => 'Python Pentest Suite', 'vendor_name' => 'cyber-Security', 'integration_profile' => 'python-pentest-suite', 'type' => 'automation', 'tool_category' => 'pentest', 'connection_type' => 'python', 'status' => 'ready', 'endpoint_url' => 'http://pentest-python:6100', 'api_base_url' => 'http://pentest-python:6100', 'scan_submit_url' => '/catalog', 'result_url' => '/summary', 'auth_type' => 'none', 'documentation_url' => '', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Python-based authorized validation companion for safe checks, evidence notes, and remediation planning.'],

@@ -416,6 +416,10 @@ textarea {
   color: var(--muted);
 }
 
+.scan-launch-form .full {
+  grid-column: 1 / -1;
+}
+
 .scan-launch-actions {
   grid-column: 1 / -1;
   display: flex;

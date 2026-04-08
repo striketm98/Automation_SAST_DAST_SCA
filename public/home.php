@@ -161,15 +161,19 @@ foreach ($integrations as $integration) {
               <h3>One-click scan launch</h3>
               <span class="muted">Initiate SAST, SCA, DAST, and APK scan jobs directly from UI</span>
             </div>
-            <form class="scan-launch-form" method="post" action="scan_trigger.php">
+            <form class="scan-launch-form" method="post" action="scan_trigger.php" enctype="multipart/form-data">
               <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
               <label>
                 <span>Target URL (Web / API)</span>
                 <input type="url" name="target_url" value="<?= e((string) ($project['target_url'] ?? $project['portal_url'] ?? '')) ?>" placeholder="https://app.client.local">
               </label>
               <label>
-                <span>Source URL (Repo / APK location)</span>
-                <input type="url" name="source_url" value="<?= e((string) ($project['source_url'] ?? $project['repository_url'] ?? '')) ?>" placeholder="https://git.example.com/org/repo">
+                <span>GitHub / Source URL (SonarQube / MobSF)</span>
+                <input type="url" name="source_url" value="<?= e((string) ($project['source_url'] ?? $project['repository_url'] ?? '')) ?>" placeholder="https://github.com/org/repo">
+              </label>
+              <label class="full">
+                <span>Upload source package (ZIP for SAST, APK for MobSF)</span>
+                <input type="file" name="source_archive" accept=".zip,.apk,.ipa,.aab,.tar,.gz,.tgz">
               </label>
               <div class="scan-launch-actions">
                 <button class="button" type="submit" name="scan_kind" value="suite">Run AppSec Suite</button>

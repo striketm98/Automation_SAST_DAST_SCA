@@ -26,12 +26,43 @@ if (!verifyCsrfToken((string) ($_POST['csrf_token'] ?? ''))) {
 $scanKind = strtolower(trim((string) ($_POST['scan_kind'] ?? '')));
 $targetUrl = trim((string) ($_POST['target_url'] ?? ''));
 $sourceUrl = trim((string) ($_POST['source_url'] ?? ''));
+$artifactPath = null;
+$sourceMode = $sourceUrl !== '' ? 'url' : 'manual';
 
 if (!in_array($scanKind, ['sast', 'sca', 'dast', 'mobile', 'suite'], true)) {
     $_SESSION['home_error'] = 'Invalid scan type selected.';
     header('Location: home.php');
     exit;
 }
+
+if (!empty($_FILES['source_archive']['name']) && is_uploaded_file($_FILES['source_archive']['tmp_name'])) {
+    $uploadDir = __DIR__ . '/../storage/source-uploads';
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0775, true);
+    }
+    $extension = strtolower(pathinfo((string) $_FILES['source_archive']['name'], PATHINFO_EXTENSION));
+    $allowed = ['zip', 'apk', 'ipa', 'aab', 'tar', 'gz', 'tgz'];
+    if (!in_array($extension, $allowed, true)) {
+        $_SESSION['home_error'] = 'Uploaded source must be ZIP/APK/IPA/AAB/TAR/GZ/TGZ.';
+        header('Location: home.php');
+        exit;
+    }
+    $archiveName = uniqid('scan-source-', true) . '.' . $extension;
+    $targetFile = $uploadDir . DIRECTORY_SEPARATOR . $archiveName;
+    if (!move_uploaded_file($_FILES['source_archive']['tmp_name'], $targetFile)) {
+        $_SESSION['home_error'] = 'Unable to save uploaded source file.';
+        header('Location: home.php');
+        exit;
+    }
+    $artifactPath = 'storage/source-uploads/' . $archiveName;
+    $sourceMode = 'upload';
+}
+
+$sourceMeta = [
+    'source_mode' => $sourceMode,
+    'artifact_path' => $artifactPath,
+    'source_name' => $artifactPath ? basename((string) $artifactPath) : null,
+];
 
 try {
     $project = $pdo->query('SELECT * FROM projects ORDER BY id DESC LIMIT 1')->fetch() ?: null;
@@ -61,7 +92,8 @@ try {
                 $kind,
                 $targetUrl,
                 $sourceUrl,
-                $integrations
+                $integrations,
+                $sourceMeta
             );
             $messages[] = (string) ($result['message'] ?? strtoupper($kind) . ' trigger sent.');
             if (empty($result['ok'])) {
@@ -80,7 +112,8 @@ try {
             $scanKind,
             $targetUrl,
             $sourceUrl,
-            $integrations
+            $integrations,
+            $sourceMeta
         );
 
         if (!empty($result['ok'])) {

@@ -236,7 +236,7 @@ SET client_logo_path = COALESCE(client_logo_path, 'assets/img/cyber-logo.png'),
 WHERE client_logo_path IS NULL OR portal_url IS NULL OR source_url IS NULL;
 
 INSERT INTO integrations (project_id, name, vendor_name, integration_profile, type, tool_category, connection_type, status, endpoint_url, api_base_url, scan_submit_url, result_url, auth_type, documentation_url, description)
-SELECT p.id, 'MobSF', 'MobSF', 'mobsf', 'scanner', 'mobile', 'docker', 'ready', 'http://localhost:8000', 'http://localhost:8000', 'http://localhost:8000/api/v1/scan', 'http://localhost:8000/api/v1/report', 'token', 'https://github.com/MobSF/docs', 'Mobile application static and dynamic analysis add-on.'
+SELECT p.id, 'MobSF', 'MobSF', 'mobsf', 'scanner', 'mobile', 'docker', 'ready', 'http://mobsf:8000', 'http://mobsf:8000', '/api/v1/scan', '/api/v1/report', 'token', 'https://github.com/MobSF/docs', 'Mobile application static and dynamic analysis add-on.'
 FROM projects p
 WHERE NOT EXISTS (SELECT 1 FROM integrations WHERE name = 'MobSF');
 
@@ -246,12 +246,12 @@ FROM projects p
 WHERE NOT EXISTS (SELECT 1 FROM integrations WHERE name = 'OASM Assistant');
 
 INSERT INTO integrations (project_id, name, vendor_name, integration_profile, type, tool_category, connection_type, status, endpoint_url, api_base_url, scan_submit_url, result_url, auth_type, documentation_url, description)
-SELECT p.id, 'OWASP ZAP', 'OWASP', 'zap', 'scanner', 'dast', 'docker', 'ready', 'http://localhost:8090', 'http://localhost:8090', '/JSON/spider/action/scan/', '/JSON/core/view/alerts/', 'none', 'https://www.zaproxy.org/docs/', 'Dynamic application security testing engine for baseline and authenticated scans.'
+SELECT p.id, 'OWASP ZAP', 'OWASP', 'zap', 'scanner', 'dast', 'docker', 'ready', 'http://zap:8090', 'http://zap:8090', '/JSON/ascan/action/scan/', '/JSON/core/view/alerts/', 'none', 'https://www.zaproxy.org/docs/', 'Dynamic application security testing engine for baseline and authenticated scans.'
 FROM projects p
 WHERE NOT EXISTS (SELECT 1 FROM integrations WHERE name = 'OWASP ZAP');
 
 INSERT INTO integrations (project_id, name, vendor_name, integration_profile, type, tool_category, connection_type, status, endpoint_url, api_base_url, scan_submit_url, result_url, auth_type, documentation_url, description)
-SELECT p.id, 'SonarQube', 'SonarSource', 'sonarqube', 'scanner', 'sast', 'docker', 'ready', 'http://localhost:9000', 'http://localhost:9000', '/api/issues/search', '/api/measures/component', 'token', 'https://docs.sonarsource.com/', 'Source-code quality and static analysis platform.'
+SELECT p.id, 'SonarQube', 'SonarSource', 'sonarqube', 'scanner', 'sast', 'docker', 'ready', 'http://sonarqube:9000', 'http://sonarqube:9000', '/api/issues/search', '/api/measures/component', 'token', 'https://docs.sonarsource.com/', 'Source-code quality and static analysis platform.'
 FROM projects p
 WHERE NOT EXISTS (SELECT 1 FROM integrations WHERE name = 'SonarQube');
 

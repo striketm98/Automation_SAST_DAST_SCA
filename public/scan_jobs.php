@@ -80,6 +80,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $integrationStmt = $pdo->prepare('SELECT * FROM integrations WHERE project_id = ? ORDER BY created_at DESC');
         $integrationStmt->execute([(int) $project['id']]);
         $integrations = $integrationStmt->fetchAll() ?: [];
+        $requestPayload = json_decode((string) ($job['request_payload'] ?? ''), true);
+        $sourceMeta = [
+            'source_mode' => is_array($requestPayload) ? (string) ($requestPayload['source_mode'] ?? 'manual') : 'manual',
+            'artifact_path' => is_array($requestPayload) ? (string) ($requestPayload['artifact_path'] ?? '') : '',
+        ];
 
         $retryResult = triggerScanFromUi(
             $pdo,
@@ -87,7 +92,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             (string) ($job['scan_kind'] ?? 'sast'),
             (string) ($job['target_url'] ?? ''),
             (string) ($job['source_url'] ?? ''),
-            $integrations
+            $integrations,
+            $sourceMeta
         );
 
         $pdo->prepare('UPDATE scan_jobs SET status = ?, error_message = ? WHERE id = ?')

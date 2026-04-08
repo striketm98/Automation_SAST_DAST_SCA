@@ -45,7 +45,9 @@ services:
   zap:
     image: ghcr.io/zaproxy/zaproxy:stable
     container_name: security-dashboard-zap
-    entrypoint: ["sleep", "infinity"]
+    command: ["zap.sh", "-daemon", "-host", "0.0.0.0", "-port", "8090", "-config", "api.disablekey=true", "-config", "api.addrs.addr.name=.*", "-config", "api.addrs.addr.regex=true"]
+    ports:
+      - "8090:8090"
     volumes:
       - zap_reports:/zap/wrk
 
