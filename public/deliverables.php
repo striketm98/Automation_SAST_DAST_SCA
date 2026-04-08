@@ -10,17 +10,29 @@ $pdo = Database::pdo();
 if ($pdo) {
     $project = $pdo->query('SELECT * FROM projects ORDER BY id DESC LIMIT 1')->fetch() ?: null;
     if ($project) {
-        $scanStmt = $pdo->prepare('SELECT * FROM scan_runs WHERE project_id = ? ORDER BY created_at DESC');
-        $scanStmt->execute([$project['id']]);
-        $scanRuns = $scanStmt->fetchAll();
+        try {
+            $scanStmt = $pdo->prepare('SELECT * FROM scan_runs WHERE project_id = ? ORDER BY created_at DESC');
+            $scanStmt->execute([$project['id']]);
+            $scanRuns = $scanStmt->fetchAll();
+        } catch (Throwable $e) {
+            $scanRuns = sampleDashboard()['scan_runs'];
+        }
 
-        $findingStmt = $pdo->prepare('SELECT f.* FROM findings f INNER JOIN scan_runs s ON s.id = f.scan_run_id WHERE s.project_id = ? ORDER BY FIELD(f.severity, "critical","high","medium","low","info"), f.created_at DESC');
-        $findingStmt->execute([$project['id']]);
-        $findings = $findingStmt->fetchAll();
+        try {
+            $findingStmt = $pdo->prepare('SELECT f.* FROM findings f INNER JOIN scan_runs s ON s.id = f.scan_run_id WHERE s.project_id = ? ORDER BY FIELD(f.severity, "critical","high","medium","low","info"), f.created_at DESC');
+            $findingStmt->execute([$project['id']]);
+            $findings = $findingStmt->fetchAll();
+        } catch (Throwable $e) {
+            $findings = sampleDashboard()['findings'];
+        }
 
-        $assetStmt = $pdo->prepare('SELECT * FROM attack_surface_assets WHERE project_id = ? ORDER BY created_at DESC');
-        $assetStmt->execute([$project['id']]);
-        $assets = $assetStmt->fetchAll();
+        try {
+            $assetStmt = $pdo->prepare('SELECT * FROM attack_surface_assets WHERE project_id = ? ORDER BY created_at DESC');
+            $assetStmt->execute([$project['id']]);
+            $assets = $assetStmt->fetchAll();
+        } catch (Throwable $e) {
+            $assets = oasmAssetSamples();
+        }
     } else {
         $dashboard = sampleDashboard();
         $project = $dashboard['project'];
@@ -40,6 +52,8 @@ $critical = count(array_filter($findings, fn($f) => $f['severity'] === 'critical
 $high = count(array_filter($findings, fn($f) => $f['severity'] === 'high'));
 $open = count($findings);
 $pentestSections = pentestChecklist();
+$user = currentUser();
+$role = currentUserRole();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -51,34 +65,70 @@ $pentestSections = pentestChecklist();
   <link rel="stylesheet" href="assets/css/app.css">
   <?php if (isset($_GET['print'])): ?><script>window.addEventListener('load', () => window.print());</script><?php endif; ?>
 </head>
-<body>
-  <div class="page-shell">
-    <header class="report-header">
-      <div class="brand-lockup">
+<body class="checklist-page">
+  <div class="app-shell checklist-shell">
+    <aside class="sidebar">
+      <div class="brand-lockup sidebar-brand">
         <img src="<?= e((string) ($project['client_logo_path'] ?? 'assets/img/cyber-logo.png')) ?>" alt="cyber-Security logo" class="brand-mark">
-        <p class="eyebrow">Client deliverables</p>
-        <h1><?= e((string) $project['name']) ?></h1>
-        <p class="subhead">One printable bundle for findings, OASM inventory, and the pentest checklist in a polished client-facing format.</p>
+        <div>
+          <p class="eyebrow">cyber-Security</p>
+          <strong>Deliverables hub</strong>
+        </div>
       </div>
-      <div class="report-actions">
-        <a class="button ghost" href="deliverables.php?print=1">Print</a>
-        <a class="button ghost" href="audit.php">Audit</a>
-        <a class="button ghost" href="report.php">Report</a>
-        <a class="button ghost" href="oasm.php">Open ASM</a>
-        <a class="button" href="home.php">Dashboard</a>
+      <nav class="side-nav">
+        <a class="side-link" href="home.php">Dashboard</a>
+        <a class="side-link" href="audit.php">Audit</a>
+        <a class="side-link" href="checklist.php">Checklist</a>
+        <a class="side-link" href="oasm.php">Open ASM</a>
+        <a class="side-link" href="report.php">Report</a>
+        <a class="side-link active" href="deliverables.php">Deliverables</a>
+      </nav>
+      <div class="sidebar-card">
+        <span class="tag tag-okay">Client pack</span>
+        <h3><?= e((string) $project['name']) ?></h3>
+        <p><?= e((string) $project['client_name']) ?></p>
       </div>
-    </header>
+    </aside>
 
-    <section class="report-summary">
+    <main class="main-shell">
+      <header class="topbar pro-topbar">
+        <div class="search-pill">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input type="text" placeholder="Search deliverables, findings, assets, and checklist sections" aria-label="Search deliverables">
+        </div>
+        <div class="topbar-actions">
+          <span class="status-chip"><?= e(ucfirst($role)) ?></span>
+          <a class="button ghost" href="deliverables.php?print=1">Print</a>
+          <a class="button ghost" href="report.php">Report</a>
+          <a class="button" href="home.php">Dashboard</a>
+          <span class="user-badge"><?= e(strtoupper(substr((string) ($user['display_name'] ?? 'A'), 0, 2))) ?></span>
+        </div>
+      </header>
+
+      <section class="hero-strip checklist-hero">
+        <div>
+          <p class="eyebrow">Client deliverables</p>
+          <h1><?= e((string) $project['name']) ?></h1>
+          <p class="subhead">One printable bundle for findings, OASM inventory, and the pentest checklist in a polished client-facing format.</p>
+        </div>
+        <div class="hero-actions">
+          <a class="button ghost" href="audit.php">Audit</a>
+          <a class="button ghost" href="checklist.php">Checklist</a>
+          <a class="button ghost" href="oasm.php">Open ASM</a>
+          <a class="button" href="report.php">Executive report</a>
+        </div>
+      </section>
+
+      <section class="report-summary">
       <div class="summary-card"><span>Open findings</span><strong><?= (int) $open ?></strong></div>
       <div class="summary-card"><span>Critical</span><strong><?= (int) $critical ?></strong></div>
       <div class="summary-card"><span>High</span><strong><?= (int) $high ?></strong></div>
       <div class="summary-card"><span>Checklist sections</span><strong><?= (int) count($pentestSections) ?></strong></div>
       <div class="summary-card"><span>ASM assets</span><strong><?= (int) count($assets) ?></strong></div>
       <div class="summary-card"><span>Scans</span><strong><?= (int) count($scanRuns) ?></strong></div>
-    </section>
+      </section>
 
-    <section class="panel">
+      <section class="panel">
       <div class="panel-header">
         <h3>Deliverable scope</h3>
         <span class="muted">Executive summary ready for client review</span>
@@ -89,9 +139,9 @@ $pentestSections = pentestChecklist();
         <div><span>Format</span><strong>Printable, shareable, export-ready</strong></div>
         <div><span>Brand</span><strong>cyber-Security</strong></div>
       </div>
-    </section>
+      </section>
 
-    <section class="panel wide">
+      <section class="panel wide">
       <div class="panel-header">
         <h3>Pentest checklist</h3>
         <span class="muted">Safe validation points</span>
@@ -108,9 +158,9 @@ $pentestSections = pentestChecklist();
           </article>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
 
-    <section class="panel wide">
+      <section class="panel wide">
       <div class="panel-header">
         <h3>Open ASM inventory</h3>
         <span class="muted">Tracked assets for the approved scope</span>
@@ -134,9 +184,9 @@ $pentestSections = pentestChecklist();
           </article>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
 
-    <section class="panel wide">
+      <section class="panel wide">
       <div class="panel-header">
         <h3>Top findings</h3>
         <span class="muted">Client-facing list of priority items</span>
@@ -153,7 +203,8 @@ $pentestSections = pentestChecklist();
           </article>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
+    </main>
   </div>
 </body>
 </html>

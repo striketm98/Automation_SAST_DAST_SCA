@@ -124,7 +124,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 : 'Import stored successfully. The report pages can now reflect the new run.';
         }
     }
-}
 
 $projects = [];
 if ($pdo) {

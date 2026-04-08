@@ -43,7 +43,7 @@ unset($_SESSION['auth_error']);
       <div class="login-card-head">
         <span class="pill pill-success">Welcome back</span>
         <h2>Sign in</h2>
-        <p>Use your assigned credentials to review findings, reports, and delivery artifacts.</p>
+        <p>Access the secure security operations workspace to review findings, reports, and delivery artifacts.</p>
       </div>
 
       <?php if ($error): ?>
@@ -62,9 +62,8 @@ unset($_SESSION['auth_error']);
         </label>
         <button class="button login-button" type="submit">Login</button>
       </form>
-      <p class="login-foot">Demo account: <strong>admin@cyber-security.local</strong></p>
-      <p class="login-foot">All demo users share the password: <strong>ChangeMe123!</strong></p>
-      <p class="login-foot">Other demo users: manager@cyber-security.local, analyst@cyber-security.local, client@cyber-security.local</p>
+      <p class="login-foot">Authorized users only. If you need access, contact the system administrator.</p>
+      <p class="login-copy">Copyright &copy; <?= date('Y') ?> Tamal Kanti Mazumder. All rights reserved.</p>
     </section>
   </main>
 </body>

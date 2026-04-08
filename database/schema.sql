@@ -135,6 +135,20 @@ CREATE TABLE IF NOT EXISTS attack_surface_history (
   CONSTRAINT fk_history_asset FOREIGN KEY (asset_id) REFERENCES attack_surface_assets(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS pentest_checklist_issues (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  project_id INT DEFAULT NULL,
+  vulnerability_type VARCHAR(80) NOT NULL,
+  issue_title VARCHAR(180) NOT NULL,
+  issue_description TEXT NOT NULL,
+  poc_notes TEXT DEFAULT NULL,
+  severity ENUM('critical','high','medium','low','info') NOT NULL DEFAULT 'medium',
+  status ENUM('open','validated','false_positive','resolved') NOT NULL DEFAULT 'open',
+  created_by VARCHAR(160) DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_checklist_project (project_id)
+);
+
 ALTER TABLE integrations
   ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(120) DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS integration_profile VARCHAR(80) DEFAULT NULL,

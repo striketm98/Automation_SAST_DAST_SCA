@@ -57,13 +57,21 @@ if ($pdo) {
         $findingStmt->execute([$project['id']]);
         $findings = $findingStmt->fetchAll();
 
-        $integrationStmt = $pdo->prepare('SELECT * FROM integrations WHERE project_id = ? ORDER BY created_at DESC');
-        $integrationStmt->execute([$project['id']]);
-        $integrations = $integrationStmt->fetchAll();
+        try {
+            $integrationStmt = $pdo->prepare('SELECT * FROM integrations WHERE project_id = ? ORDER BY created_at DESC');
+            $integrationStmt->execute([$project['id']]);
+            $integrations = $integrationStmt->fetchAll();
+        } catch (Throwable $e) {
+            $integrations = sampleDashboard()['integrations'];
+        }
 
-        $assetStmt = $pdo->prepare('SELECT * FROM attack_surface_assets WHERE project_id = ? ORDER BY created_at DESC');
-        $assetStmt->execute([$project['id']]);
-        $assets = $assetStmt->fetchAll();
+        try {
+            $assetStmt = $pdo->prepare('SELECT * FROM attack_surface_assets WHERE project_id = ? ORDER BY created_at DESC');
+            $assetStmt->execute([$project['id']]);
+            $assets = $assetStmt->fetchAll();
+        } catch (Throwable $e) {
+            $assets = oasmAssetSamples();
+        }
     }
 }
 

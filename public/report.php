@@ -77,6 +77,8 @@ $domainCards = [
     ['label' => 'Pentest', 'count' => count(array_filter($integrations, fn($tool) => ($tool['tool_category'] ?? '') === 'pentest')), 'hint' => 'Authorized testing'],
     ['label' => 'Automation', 'count' => count(array_filter($integrations, fn($tool) => ($tool['tool_category'] ?? '') === 'automation')), 'hint' => 'Workflow helpers'],
 ];
+$user = currentUser();
+$role = currentUserRole();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -89,41 +91,80 @@ $domainCards = [
   <?php if (isset($_GET['print'])): ?><script>window.addEventListener('load', () => window.print());</script><?php endif; ?>
 </head>
 <body class="report-page">
-  <div class="page-shell report-shell">
-    <header class="report-header">
-      <div class="brand-lockup">
+  <div class="app-shell checklist-shell report-shell-shell">
+    <aside class="sidebar">
+      <div class="brand-lockup sidebar-brand">
         <img src="<?= e((string) ($project['client_logo_path'] ?? 'assets/img/cyber-logo.png')) ?>" alt="cyber-Security logo" class="brand-mark">
-        <p class="eyebrow">Executive security report</p>
-        <h1><?= e((string) $project['name']) ?></h1>
-        <p class="subhead">Prepared for <?= e((string) $project['client_name']) ?>. This consolidated report brings together application security, code quality, and dependency risk in a single decision-ready view.</p>
+        <div>
+          <p class="eyebrow">cyber-Security</p>
+          <strong>Executive report</strong>
+        </div>
       </div>
-      <div class="report-actions">
-        <a class="button ghost" href="report.php?print=1">Download PDF</a>
-        <a class="button ghost" href="export.php?format=doc">Word</a>
-        <a class="button ghost" href="export.php?format=xls">Excel</a>
-        <a class="button ghost" href="export.php?format=csv">CSV</a>
-        <a class="button ghost" href="export.php?format=json">JSON</a>
-        <a class="button ghost" href="audit.php">Audit</a>
-        <a class="button ghost" href="checklist.php">Checklist</a>
-        <a class="button ghost" href="oasm.php">Open ASM</a>
-        <a class="button ghost" href="deliverables.php">Deliverables</a>
-        <a class="button" href="home.php">Back to dashboard</a>
+      <nav class="side-nav">
+        <a class="side-link" href="home.php">Dashboard</a>
+        <a class="side-link" href="audit.php">Audit</a>
+        <a class="side-link" href="checklist.php">Checklist</a>
+        <a class="side-link" href="oasm.php">Open ASM</a>
+        <a class="side-link active" href="report.php">Report</a>
+        <a class="side-link" href="deliverables.php">Deliverables</a>
+      </nav>
+      <div class="sidebar-card">
+        <span class="tag tag-okay">Executive view</span>
+        <h3><?= e((string) $project['name']) ?></h3>
+        <p><?= e((string) $project['client_name']) ?></p>
       </div>
-    </header>
+    </aside>
+
+    <main class="main-shell">
+      <header class="topbar pro-topbar">
+        <div class="search-pill">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input type="text" placeholder="Search findings, tools, assets, and checklist data" aria-label="Search report">
+        </div>
+        <div class="topbar-actions">
+          <span class="status-chip"><?= e(ucfirst($role)) ?></span>
+          <a class="button ghost" href="report.php?print=1">Download PDF</a>
+          <a class="button ghost" href="export.php?format=doc">Word</a>
+          <a class="button ghost" href="export.php?format=xls">Excel</a>
+          <a class="button ghost" href="export.php?format=csv">CSV</a>
+          <a class="button ghost" href="export.php?format=json">JSON</a>
+          <a class="button" href="home.php">Back to dashboard</a>
+          <span class="user-badge"><?= e(strtoupper(substr((string) ($user['display_name'] ?? 'A'), 0, 2))) ?></span>
+        </div>
+      </header>
+
+      <section class="hero-strip checklist-hero">
+        <div class="report-brand">
+          <div class="brand-lockup">
+            <img src="<?= e((string) ($project['client_logo_path'] ?? 'assets/img/cyber-logo.png')) ?>" alt="cyber-Security logo" class="brand-mark">
+            <div class="report-brand-copy">
+              <p class="eyebrow">Executive security report</p>
+              <h1><?= e((string) $project['name']) ?></h1>
+              <p class="subhead">Prepared for <?= e((string) $project['client_name']) ?>. This consolidated report brings together application security, code quality, and dependency risk in a single decision-ready view.</p>
+            </div>
+          </div>
+        </div>
+        <div class="hero-actions">
+          <a class="button ghost" href="audit.php">Audit</a>
+          <a class="button ghost" href="checklist.php">Checklist</a>
+          <a class="button ghost" href="oasm.php">Open ASM</a>
+          <a class="button" href="deliverables.php">Deliverables</a>
+        </div>
+      </section>
 
     <?php if ($reviewSuccess): ?><div class="notice success"><?= e((string) $reviewSuccess) ?></div><?php endif; ?>
     <?php if ($reviewError): ?><div class="notice danger"><?= e((string) $reviewError) ?></div><?php endif; ?>
 
-    <section class="report-summary">
+      <section class="report-summary">
       <div class="summary-card"><span>Open findings</span><strong><?= (int) $open ?></strong></div>
       <div class="summary-card"><span>Critical</span><strong><?= (int) $critical ?></strong></div>
       <div class="summary-card"><span>High</span><strong><?= (int) $high ?></strong></div>
       <div class="summary-card"><span>Medium</span><strong><?= (int) $medium ?></strong></div>
       <div class="summary-card"><span>Low</span><strong><?= (int) $low ?></strong></div>
       <div class="summary-card"><span>Tools up</span><strong><?= (int) $toolReady ?>/<?= (int) $toolTotal ?></strong></div>
-    </section>
+      </section>
 
-    <section class="panel">
+      <section class="panel">
       <div class="panel-header">
         <h3>Assessment domains</h3>
         <span class="muted">Static, dynamic, mobile, and pentest coverage</span>
@@ -137,9 +178,9 @@ $domainCards = [
           </div>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
 
-    <section class="panel">
+      <section class="panel">
       <div class="panel-header">
         <h3>Assessment scope</h3>
       </div>
@@ -149,9 +190,9 @@ $domainCards = [
         <div><span>Coverage model</span><strong>SAST, DAST, SCA, MobSF, and Python pentest validation</strong></div>
         <div><span>Delivery</span><strong>HTML report, printable view, and MySQL archive</strong></div>
       </div>
-    </section>
+      </section>
 
-    <section class="panel">
+      <section class="panel">
       <div class="panel-header">
         <h3>Client access</h3>
         <span class="muted">Portal, source repository, and credentials reference</span>
@@ -162,9 +203,9 @@ $domainCards = [
         <div><span>Source user</span><strong><?= e((string) ($project['source_username'] ?? 'n/a')) ?></strong></div>
         <div><span>Password note</span><strong><?= e((string) ($project['source_password_hint'] ?? 'n/a')) ?></strong></div>
       </div>
-    </section>
+      </section>
 
-    <section class="panel">
+      <section class="panel">
       <div class="panel-header">
         <h3>Open ASM</h3>
         <span class="muted">Asset exposure overview from the OASM module</span>
@@ -175,9 +216,9 @@ $domainCards = [
         <div><span>Internal</span><strong><?= (int) count(array_filter($assets, fn($asset) => ($asset['exposure'] ?? '') === 'internal')) ?></strong></div>
         <div><span>Reviewed</span><strong><?= (int) count(array_filter($assets, fn($asset) => ($asset['status'] ?? '') === 'reviewed')) ?></strong></div>
       </div>
-    </section>
+      </section>
 
-    <section class="panel">
+      <section class="panel">
       <div class="panel-header">
         <h3>Tool health</h3>
         <span class="muted">Up, configured, and disabled tools with logos</span>
@@ -208,9 +249,9 @@ $domainCards = [
           </article>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
 
-    <section class="report-summary">
+      <section class="report-summary">
       <?php $pentestHealth = toolHealth((string) ($pentestService['endpoint_url'] ?? '')); ?>
       <?php $oasmHealth = toolHealth((string) ($oasmService['endpoint_url'] ?? '')); ?>
       <div class="summary-card"><span>Python pentest</span><strong><?= e($pentestHealth['label']) ?></strong></div>
@@ -219,9 +260,9 @@ $domainCards = [
       <div class="summary-card"><span>OASM endpoint</span><strong><?= e((string) ($oasmHealth['detail'] ?? 'n/a')) ?></strong></div>
       <div class="summary-card"><span>Checklist sections</span><strong><?= (int) count(pentestChecklist()) ?></strong></div>
       <div class="summary-card"><span>ASM assets</span><strong><?= (int) count($assets) ?></strong></div>
-    </section>
+      </section>
 
-    <section class="panel">
+      <section class="panel">
       <div class="panel-header">
         <h3>Python pentest playbook</h3>
         <span class="muted">Safe validation workflow for authorized testing only</span>
@@ -241,9 +282,9 @@ $domainCards = [
           </div>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
 
-    <section class="panel">
+      <section class="panel">
       <div class="panel-header">
         <h3>CWE coverage</h3>
         <span class="muted">AI-assisted triage included</span>
@@ -253,9 +294,9 @@ $domainCards = [
           <span class="tag"><?= e($cwe . ' ' . $label) ?></span>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
 
-    <section class="panel wide">
+      <section class="panel wide">
       <div class="panel-header">
         <h3>Checklist and ASM export snapshot</h3>
         <span class="muted">Included in Word and Excel exports for client delivery</span>
@@ -266,9 +307,9 @@ $domainCards = [
         <div><span>Python pentest</span><strong>Safe validation playbook</strong></div>
         <div><span>Delivery</span><strong>DOC, XLS, CSV, JSON, PDF-ready</strong></div>
       </div>
-    </section>
+      </section>
 
-    <section class="panel wide">
+      <section class="panel wide">
       <div class="panel-header">
         <h3>Findings</h3>
         <span class="muted">Use the review panel to mark false positives, add comments, and store AI notes.</span>
@@ -348,9 +389,9 @@ $domainCards = [
           </article>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
 
-    <section class="panel wide">
+      <section class="panel wide">
       <div class="panel-header">
         <h3>Scan timeline</h3>
         <span class="muted">Includes safe labels for injection-style findings without exploit detail</span>
@@ -367,7 +408,8 @@ $domainCards = [
           </div>
         <?php endforeach; ?>
       </div>
-    </section>
+      </section>
+    </main>
   </div>
   <script src="assets/js/app.js"></script>
 </body>
