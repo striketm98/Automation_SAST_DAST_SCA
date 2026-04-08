@@ -41,6 +41,19 @@ function integrationStatusClass(string $status): string
     };
 }
 
+function toolCategoryLabel(string $category): string
+{
+    return match ($category) {
+        'sast' => 'SAST',
+        'dast' => 'DAST',
+        'sca' => 'SCA',
+        'mobile' => 'Mobile',
+        'pentest' => 'Pentest',
+        'assistant' => 'Assistant',
+        default => 'Automation',
+    };
+}
+
 function cweCatalog(): array
 {
     return [
@@ -53,6 +66,323 @@ function cweCatalog(): array
         'CWE-798' => 'Use of Hard-coded Credentials',
         'CWE-200' => 'Information Exposure',
     ];
+}
+
+function cweRemediation(string $cweId): string
+{
+    return match ($cweId) {
+        'CWE-89' => 'Use parameterized queries or prepared statements and validate all inputs.',
+        'CWE-79' => 'Encode output, validate input, and apply context-aware escaping.',
+        'CWE-78' => 'Avoid shell execution with untrusted input and use safe APIs.',
+        'CWE-22' => 'Normalize paths and enforce strict allow-lists for file access.',
+        'CWE-306' => 'Require authentication and verify access before protected actions.',
+        'CWE-352' => 'Add CSRF tokens and verify them on every state-changing request.',
+        'CWE-798' => 'Remove hard-coded credentials and load secrets from a secure store.',
+        'CWE-200' => 'Reduce exposure and verify that the disclosure is intentional and necessary.',
+        default => 'Review the code path, add defensive validation, and retest after remediation.',
+    };
+}
+
+function inferCweId(array $item, string $sourceName = ''): ?string
+{
+    foreach (['cwe_id', 'cwe', 'cweid'] as $key) {
+        if (!empty($item[$key])) {
+            $value = strtoupper(trim((string) $item[$key]));
+            return str_starts_with($value, 'CWE-') ? $value : ('CWE-' . preg_replace('/\D+/', '', $value));
+        }
+    }
+
+    $haystack = strtolower(
+        trim(
+            implode(' ', array_filter([
+                (string) ($item['title'] ?? ''),
+                (string) ($item['message'] ?? ''),
+                (string) ($item['description'] ?? ''),
+                (string) ($item['desc'] ?? ''),
+                (string) ($item['rule'] ?? ''),
+                (string) $sourceName,
+            ]))
+        )
+    );
+
+    return match (true) {
+        str_contains($haystack, 'sql injection') || str_contains($haystack, 'sqli') => 'CWE-89',
+        str_contains($haystack, 'cross-site scripting') || str_contains($haystack, ' xss') || str_contains($haystack, 'xss ') => 'CWE-79',
+        str_contains($haystack, 'command injection') || str_contains($haystack, 'shell') || str_contains($haystack, 'exec') => 'CWE-78',
+        str_contains($haystack, 'csrf') => 'CWE-352',
+        str_contains($haystack, 'path traversal') || str_contains($haystack, 'directory traversal') => 'CWE-22',
+        str_contains($haystack, 'authentication') => 'CWE-306',
+        str_contains($haystack, 'hard-coded') || str_contains($haystack, 'hardcoded') || str_contains($haystack, 'credential') => 'CWE-798',
+        str_contains($haystack, 'exposure') || str_contains($haystack, 'information') => 'CWE-200',
+        default => null,
+    };
+}
+
+function normalizeSeverityLabel(string $severity, string $sourceName = ''): string
+{
+    $value = strtolower(trim($severity));
+    return match ($value) {
+        'blocker', 'critical', 'error', 'high', 'severe' => 'critical',
+        'major', 'medium', 'warn', 'warning', 'moderate' => 'medium',
+        'minor', 'low', 'info', 'information', 'notice' => 'low',
+        default => str_contains(strtolower($sourceName), 'zap') ? 'medium' : 'low',
+    };
+}
+
+function normalizeFindingFromImport(array $item, string $sourceName, string $toolName, string $scanType): array
+{
+    $title = trim((string) ($item['title'] ?? $item['name'] ?? $item['alert'] ?? $item['message'] ?? $item['rule'] ?? 'Imported finding'));
+    $description = trim((string) ($item['description'] ?? $item['desc'] ?? $item['details'] ?? $item['message'] ?? $item['riskdesc'] ?? $title));
+    $recommendation = trim((string) ($item['solution'] ?? $item['remediation'] ?? $item['fix'] ?? $item['recommendation'] ?? ''));
+    $cweId = inferCweId($item, $sourceName);
+    $category = match ($scanType) {
+        'zap' => 'DAST',
+        'sca' => 'SCA',
+        'sonarqube' => 'SAST',
+        default => (str_contains(strtolower($sourceName), 'mobsf') ? 'Mobile' : 'SAST'),
+    };
+    $severity = normalizeSeverityLabel((string) ($item['severity'] ?? $item['risk'] ?? $item['priority'] ?? $item['level'] ?? ''), $sourceName);
+    $filePath = trim((string) ($item['file_path'] ?? $item['file'] ?? $item['component'] ?? $item['url'] ?? $item['path'] ?? ''));
+    $lineNumber = null;
+    foreach (['line', 'line_number', 'lineno', 'startline'] as $lineKey) {
+        if (isset($item[$lineKey]) && is_numeric($item[$lineKey])) {
+            $lineNumber = (int) $item[$lineKey];
+            break;
+        }
+    }
+
+    $issueSummary = trim((string) ($item['ai_issue_summary'] ?? $item['issue_summary'] ?? $item['summary'] ?? ''));
+    if ($issueSummary === '') {
+        $issueSummary = $title . ' detected from ' . $toolName . '.';
+    }
+
+    if ($recommendation === '') {
+        $recommendation = $cweId ? cweRemediation($cweId) : 'Review the affected code path and apply a safe, tested fix.';
+    }
+
+    $validationNotes = trim((string) ($item['validation_notes'] ?? $item['evidence'] ?? $item['evidence_notes'] ?? ''));
+    if ($validationNotes === '') {
+        $evidenceParts = array_filter([
+            trim((string) ($item['url'] ?? '')),
+            trim((string) ($item['param'] ?? '')),
+            trim((string) ($item['component'] ?? '')),
+            trim((string) ($item['file'] ?? '')),
+        ]);
+        $validationNotes = $evidenceParts ? ('Safe validation evidence: ' . implode(', ', $evidenceParts)) : 'Safe validation evidence only. No exploit steps are stored in the platform.';
+    }
+
+    return [
+        'severity' => $severity,
+        'status' => 'open',
+        'cwe_id' => $cweId,
+        'title' => $title,
+        'category' => $category,
+        'file_path' => $filePath !== '' ? $filePath : null,
+        'line_number' => $lineNumber,
+        'description' => $description,
+        'recommendation' => $recommendation,
+        'ai_issue_summary' => $issueSummary,
+        'ai_summary' => $issueSummary,
+        'ai_remediation' => $recommendation,
+        'validation_notes' => $validationNotes,
+        'ai_confidence' => isset($item['confidence']) && is_numeric($item['confidence']) ? min(100, max(0, (int) $item['confidence'])) : null,
+        'analyst_comment' => null,
+    ];
+}
+
+function importedFindingCandidates(array $payload): array
+{
+    foreach (['findings', 'issues', 'alerts', 'vulnerabilities', 'results'] as $key) {
+        if (!empty($payload[$key]) && is_array($payload[$key])) {
+            return array_values(array_filter($payload[$key], 'is_array'));
+        }
+    }
+
+    if (!empty($payload['data']) && is_array($payload['data'])) {
+        return array_values(array_filter($payload['data'], 'is_array'));
+    }
+
+    return [];
+}
+
+function normalizeImportedFindings(string $sourceName, string $toolName, string $scanType, array $payload): array
+{
+    $candidates = importedFindingCandidates($payload);
+    $findings = [];
+
+    foreach ($candidates as $candidate) {
+        $findings[] = normalizeFindingFromImport($candidate, $sourceName, $toolName, $scanType);
+    }
+
+    if (!$findings && !empty($payload)) {
+        $findings[] = normalizeFindingFromImport($payload, $sourceName, $toolName, $scanType);
+    }
+
+    return $findings;
+}
+
+function ingestImportedFindings(PDO $pdo, int $scanRunId, string $sourceName, string $toolName, string $scanType, array $payload): int
+{
+    $findings = normalizeImportedFindings($sourceName, $toolName, $scanType, $payload);
+    if (!$findings) {
+        return 0;
+    }
+
+    $stmt = $pdo->prepare('
+        INSERT INTO findings (
+            scan_run_id, severity, status, cwe_id, ai_issue_summary, ai_summary, ai_remediation,
+            validation_notes, ai_confidence, title, category, file_path, line_number, description,
+            recommendation, analyst_comment
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ');
+
+    $count = 0;
+    foreach ($findings as $finding) {
+        $stmt->execute([
+            $scanRunId,
+            $finding['severity'],
+            $finding['status'],
+            $finding['cwe_id'],
+            $finding['ai_issue_summary'],
+            $finding['ai_summary'],
+            $finding['ai_remediation'],
+            $finding['validation_notes'],
+            $finding['ai_confidence'],
+            $finding['title'],
+            $finding['category'],
+            $finding['file_path'],
+            $finding['line_number'],
+            $finding['description'],
+            $finding['recommendation'],
+            $finding['analyst_comment'],
+        ]);
+        $count++;
+    }
+
+    return $count;
+}
+
+function pentestPlaybook(): array
+{
+    return [
+        [
+            'title' => 'Authentication review',
+            'summary' => 'Validate login behavior, session expiry, and access control outcomes.',
+        ],
+        [
+            'title' => 'Input validation review',
+            'summary' => 'Check server-side validation, output encoding, and request handling.',
+        ],
+        [
+            'title' => 'Mobile configuration review',
+            'summary' => 'Confirm transport security, local storage, and API usage rules.',
+        ],
+        [
+            'title' => 'Dependency exposure review',
+            'summary' => 'Track advisory status, package versions, and remediation evidence.',
+        ],
+    ];
+}
+
+function pentestChecklist(): array
+{
+    return [
+        ['section' => 'Access control', 'items' => ['Login works as expected', 'Session expires on logout', 'Role restrictions enforced', 'Admin pages are protected']],
+        ['section' => 'Input handling', 'items' => ['Server-side validation is present', 'Output encoding is context-aware', 'File uploads are restricted', 'Error messages do not leak secrets']],
+        ['section' => 'Security headers', 'items' => ['HSTS enabled', 'CSP reviewed', 'X-Frame-Options or frame-ancestors set', 'Cookies use Secure and HttpOnly']],
+        ['section' => 'Mobile / API', 'items' => ['Transport security is enforced', 'Sensitive data is not stored locally', 'API auth is required', 'No excessive data in responses']],
+        ['section' => 'Evidence', 'items' => ['Screenshots captured', 'Validation notes stored', 'CWE mapped', 'Remediation confirmed after retest']],
+    ];
+}
+
+function oasmAssetSamples(): array
+{
+    return [
+        ['asset_type' => 'domain', 'asset_name' => 'client.example.com', 'asset_url' => 'https://client.example.com', 'exposure' => 'public', 'status' => 'reviewed', 'notes' => 'Primary portal under ongoing monitoring.'],
+        ['asset_type' => 'api', 'asset_name' => 'api.client.example.com', 'asset_url' => 'https://api.client.example.com', 'exposure' => 'public', 'status' => 'discovered', 'notes' => 'API surface queued for validation.'],
+        ['asset_type' => 'subdomain', 'asset_name' => 'dev.client.example.com', 'asset_url' => 'https://dev.client.example.com', 'exposure' => 'internal', 'status' => 'in_scope', 'notes' => 'Internal environment tracked for exposure control.'],
+        ['asset_type' => 'repo', 'asset_name' => 'github.com/acme/repo', 'asset_url' => 'https://github.com/acme/repo', 'exposure' => 'restricted', 'status' => 'out_of_scope', 'notes' => 'Reference only; not in current assessment.'],
+    ];
+}
+
+function toolHealth(string $endpointUrl): array
+{
+    $endpointUrl = trim($endpointUrl);
+    if ($endpointUrl === '') {
+        return ['status' => 'unknown', 'label' => 'Unknown', 'detail' => 'No endpoint configured'];
+    }
+
+    $healthUrl = rtrim($endpointUrl, '/') . '/health';
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'timeout' => 2,
+            'ignore_errors' => true,
+        ],
+    ]);
+
+    $body = @file_get_contents($healthUrl, false, $context);
+    if ($body === false) {
+        return ['status' => 'down', 'label' => 'Down', 'detail' => $healthUrl];
+    }
+
+    $decoded = json_decode($body, true);
+    if (is_array($decoded) && (($decoded['status'] ?? '') === 'ok' || ($decoded['status'] ?? '') === 'ready')) {
+        return ['status' => 'up', 'label' => 'Up', 'detail' => $healthUrl];
+    }
+
+    return ['status' => 'partial', 'label' => 'Partial', 'detail' => $healthUrl];
+}
+
+function logOasmHistory(PDO $pdo, ?int $projectId, ?int $assetId, string $action, string $details): void
+{
+    if (!$projectId) {
+        return;
+    }
+
+    $actor = currentUser()['display_name'] ?? currentUser()['email'] ?? 'system';
+    $stmt = $pdo->prepare('INSERT INTO attack_surface_history (project_id, asset_id, action, actor, details) VALUES (?, ?, ?, ?, ?)');
+    $stmt->execute([
+        $projectId,
+        $assetId,
+        $action,
+        $actor,
+        $details !== '' ? $details : null,
+    ]);
+}
+
+function parseOasmAssetPayload(string $payload): array
+{
+    $decoded = json_decode($payload, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $records = [];
+    $items = [];
+    foreach (['assets', 'items', 'data'] as $key) {
+        if (!empty($decoded[$key]) && is_array($decoded[$key])) {
+            $items = array_values(array_filter($decoded[$key], 'is_array'));
+            break;
+        }
+    }
+
+    if (!$items && array_is_list($decoded)) {
+        $items = array_values(array_filter($decoded, 'is_array'));
+    }
+
+    foreach ($items ?: [$decoded] as $item) {
+        $records[] = [
+            'asset_type' => (string) ($item['asset_type'] ?? $item['type'] ?? 'url'),
+            'asset_name' => (string) ($item['asset_name'] ?? $item['name'] ?? $item['host'] ?? $item['url'] ?? 'Imported asset'),
+            'asset_url' => (string) ($item['asset_url'] ?? $item['url'] ?? ''),
+            'exposure' => (string) ($item['exposure'] ?? 'public'),
+            'status' => (string) ($item['status'] ?? 'discovered'),
+            'notes' => (string) ($item['notes'] ?? $item['description'] ?? 'Imported from JSON feed.'),
+        ];
+    }
+
+    return $records;
 }
 
 function appName(): string
@@ -166,13 +496,19 @@ function sampleDashboard(): array
             ['tool_name' => 'Dependency-Check', 'scan_type' => 'sca', 'status' => 'completed', 'summary' => 'Open-source dependency review completed.', 'completed_at' => '2026-04-07 18:20:00'],
         ],
         'integrations' => [
-            ['name' => 'MobSF', 'type' => 'scanner', 'status' => 'ready', 'endpoint_url' => 'http://localhost:8000', 'description' => 'Mobile application static and dynamic analysis add-on.'],
-            ['name' => 'OASM Assistant', 'type' => 'assistant', 'status' => 'configured', 'endpoint_url' => 'https://oasm.example.local', 'description' => 'Intelligence assistant integration for threat triage and guidance.'],
+            ['name' => 'MobSF', 'vendor_name' => 'MobSF', 'integration_profile' => 'mobsf', 'type' => 'scanner', 'tool_category' => 'mobile', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://localhost:8000', 'api_base_url' => 'http://localhost:8000', 'scan_submit_url' => '/api/v1/scan', 'result_url' => '/api/v1/report', 'auth_type' => 'token', 'documentation_url' => 'https://github.com/MobSF/docs', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Mobile application static and dynamic analysis add-on.'],
+            ['name' => 'OASM Assistant', 'vendor_name' => 'cyber-Security', 'integration_profile' => 'oasm-assistant', 'type' => 'assistant', 'tool_category' => 'assistant', 'connection_type' => 'api', 'status' => 'configured', 'endpoint_url' => 'https://oasm.example.local', 'api_base_url' => 'https://oasm.example.local', 'scan_submit_url' => '/api/summary', 'result_url' => '/api/assets', 'auth_type' => 'bearer', 'documentation_url' => '', 'last_test_status' => 'unknown', 'last_test_detail' => 'No test result yet', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Intelligence assistant integration for threat triage and guidance.'],
+            ['name' => 'OWASP ZAP', 'vendor_name' => 'OWASP', 'integration_profile' => 'zap', 'type' => 'scanner', 'tool_category' => 'dast', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://localhost:8090', 'api_base_url' => 'http://localhost:8090', 'scan_submit_url' => '/JSON/spider/action/scan/', 'result_url' => '/JSON/core/view/alerts/', 'auth_type' => 'none', 'documentation_url' => 'https://www.zaproxy.org/docs/', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Dynamic application security testing engine for baseline and authenticated scans.'],
+            ['name' => 'SonarQube', 'vendor_name' => 'SonarSource', 'integration_profile' => 'sonarqube', 'type' => 'scanner', 'tool_category' => 'sast', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://localhost:9000', 'api_base_url' => 'http://localhost:9000', 'scan_submit_url' => '/api/issues/search', 'result_url' => '/api/measures/component', 'auth_type' => 'token', 'documentation_url' => 'https://docs.sonarsource.com/', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Source-code quality and static analysis platform.'],
+            ['name' => 'Dependency-Check', 'vendor_name' => 'OWASP', 'integration_profile' => 'dependency-check', 'type' => 'scanner', 'tool_category' => 'sca', 'connection_type' => 'docker', 'status' => 'ready', 'endpoint_url' => 'http://localhost:3300', 'api_base_url' => 'http://localhost:3300', 'scan_submit_url' => '/api/report', 'result_url' => '/api/report', 'auth_type' => 'none', 'documentation_url' => 'https://jeremylong.github.io/DependencyCheck/', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Open-source dependency and vulnerability analysis.'],
+            ['name' => 'sqlmap', 'vendor_name' => 'sqlmap', 'integration_profile' => 'sqlmap', 'type' => 'scanner', 'tool_category' => 'pentest', 'connection_type' => 'python', 'status' => 'configured', 'endpoint_url' => 'http://localhost:6000', 'api_base_url' => 'http://localhost:6000', 'scan_submit_url' => '/run', 'result_url' => '/results', 'auth_type' => 'token', 'documentation_url' => 'https://sqlmap.org/', 'last_test_status' => 'unknown', 'last_test_detail' => 'No test result yet', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Authorized SQL injection testing container for controlled assessments.'],
+            ['name' => 'Python Pentest Suite', 'vendor_name' => 'cyber-Security', 'integration_profile' => 'python-pentest-suite', 'type' => 'automation', 'tool_category' => 'pentest', 'connection_type' => 'python', 'status' => 'ready', 'endpoint_url' => 'http://pentest-python:6100', 'api_base_url' => 'http://pentest-python:6100', 'scan_submit_url' => '/catalog', 'result_url' => '/summary', 'auth_type' => 'none', 'documentation_url' => '', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Python-based authorized validation companion for safe checks, evidence notes, and remediation planning.'],
+            ['name' => 'Open Attack Surface Management', 'vendor_name' => 'cyber-Security', 'integration_profile' => 'oasm', 'type' => 'assistant', 'tool_category' => 'assistant', 'connection_type' => 'api', 'status' => 'ready', 'endpoint_url' => 'http://oasm:6200', 'api_base_url' => 'http://oasm:6200', 'scan_submit_url' => '/assets', 'result_url' => '/summary', 'auth_type' => 'none', 'documentation_url' => '', 'last_test_status' => 'up', 'last_test_detail' => 'Demo endpoint reachable', 'tool_logo_path' => 'assets/img/cyber-logo.png', 'description' => 'Attack-surface inventory and exposure tracking module for approved assets.'],
         ],
         'findings' => [
-            ['id' => 1, 'severity' => 'critical', 'status' => 'open', 'cwe_id' => 'CWE-78', 'analyst_comment' => '', 'ai_summary' => 'Likely command injection path with direct process execution.', 'ai_confidence' => 91, 'title' => 'Remote code execution pattern', 'category' => 'SAST', 'file_path' => 'app/services/parser.php', 'line_number' => 131, 'description' => 'Untrusted content is passed into a dynamic evaluator.', 'recommendation' => 'Remove the evaluator and replace it with a safe parser.'],
-            ['id' => 2, 'severity' => 'high', 'status' => 'open', 'cwe_id' => 'CWE-352', 'analyst_comment' => '', 'ai_summary' => 'Missing anti-forgery controls on a state-changing form.', 'ai_confidence' => 88, 'title' => 'Missing CSRF protection', 'category' => 'DAST', 'file_path' => 'views/profile.php', 'line_number' => 42, 'description' => 'State-changing form does not include a CSRF token.', 'recommendation' => 'Add a CSRF token and verify it server-side.'],
-            ['id' => 3, 'severity' => 'medium', 'status' => 'false_positive', 'cwe_id' => 'CWE-200', 'analyst_comment' => 'Vendor package risk is under review and appears informational.', 'ai_summary' => 'External package risk appears informational and should be manually confirmed.', 'ai_confidence' => 74, 'title' => 'Outdated dependency', 'category' => 'SCA', 'file_path' => 'composer.lock', 'line_number' => null, 'description' => 'A third-party package includes a known medium-risk vulnerability.', 'recommendation' => 'Upgrade to a patched version and re-run dependency analysis.'],
+            ['id' => 1, 'severity' => 'critical', 'status' => 'open', 'claim_state' => 'unclaimed', 'claimed_by' => null, 'claimed_at' => null, 'cwe_id' => 'CWE-78', 'analyst_comment' => '', 'ai_issue_summary' => 'Likely command injection path with direct process execution.', 'ai_summary' => 'Likely command injection path with direct process execution.', 'ai_remediation' => 'Remove the evaluator and replace it with a safe parser.', 'validation_notes' => 'Validate with unit tests and safe input cases only. Do not store exploit steps.', 'ai_confidence' => 91, 'title' => 'Remote code execution pattern', 'category' => 'SAST', 'file_path' => 'app/services/parser.php', 'line_number' => 131, 'description' => 'Untrusted content is passed into a dynamic evaluator.', 'recommendation' => 'Remove the evaluator and replace it with a safe parser.'],
+            ['id' => 2, 'severity' => 'high', 'status' => 'open', 'claim_state' => 'unclaimed', 'claimed_by' => null, 'claimed_at' => null, 'cwe_id' => 'CWE-352', 'analyst_comment' => '', 'ai_issue_summary' => 'Missing anti-forgery controls on a state-changing form.', 'ai_summary' => 'Missing anti-forgery controls on a state-changing form.', 'ai_remediation' => 'Add a CSRF token and verify it server-side.', 'validation_notes' => 'Confirm token rejection on missing and stale submissions.', 'ai_confidence' => 88, 'title' => 'Missing CSRF protection', 'category' => 'DAST', 'file_path' => 'views/profile.php', 'line_number' => 42, 'description' => 'State-changing form does not include a CSRF token.', 'recommendation' => 'Add a CSRF token and verify it server-side.'],
+            ['id' => 3, 'severity' => 'medium', 'status' => 'false_positive', 'claim_state' => 'unclaimed', 'claimed_by' => null, 'claimed_at' => null, 'cwe_id' => 'CWE-200', 'analyst_comment' => 'Vendor package risk is under review and appears informational.', 'ai_issue_summary' => 'External package risk appears informational and should be manually confirmed.', 'ai_summary' => 'External package risk appears informational and should be manually confirmed.', 'ai_remediation' => 'Upgrade to a patched version and re-run dependency analysis.', 'validation_notes' => 'Check upstream advisories and package changelog before closing.', 'ai_confidence' => 74, 'title' => 'Outdated dependency', 'category' => 'SCA', 'file_path' => 'composer.lock', 'line_number' => null, 'description' => 'A third-party package includes a known medium-risk vulnerability.', 'recommendation' => 'Upgrade to a patched version and re-run dependency analysis.'],
         ],
     ];
 }

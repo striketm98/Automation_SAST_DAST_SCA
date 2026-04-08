@@ -60,6 +60,7 @@ services:
   mobsf:
     image: opensecurity/mobile-security-framework-mobsf:latest
     container_name: security-dashboard-mobsf
+    user: root
     ports:
       - "8000:8000"
     volumes:
@@ -67,6 +68,36 @@ services:
     environment:
       MOBSF_USER: mobsf
       MOBSF_PASS: mobsf
+
+  sqlmap:
+    build:
+      context: ./tools/sqlmap
+    container_name: security-dashboard-sqlmap
+    ports:
+      - "6000:6000"
+    volumes:
+      - sqlmap_data:/workspace
+    entrypoint: ["sleep", "infinity"]
+
+  pentest-python:
+    build:
+      context: ./tools/pentest-python
+    container_name: security-dashboard-pentest-python
+    ports:
+      - "6100:6100"
+    volumes:
+      - pentest_python_data:/workspace
+    entrypoint: ["python", "-m", "pentest_api"]
+
+  oasm:
+    build:
+      context: ./tools/oasm
+    container_name: security-dashboard-oasm
+    ports:
+      - "6200:6200"
+    volumes:
+      - oasm_data:/workspace
+    entrypoint: ["python", "-m", "oasm_api"]
 
 volumes:
   db_data:
@@ -76,3 +107,6 @@ volumes:
   zap_reports:
   dependency_check_reports:
   mobsf_data:
+  sqlmap_data:
+  pentest_python_data:
+  oasm_data:

@@ -19,7 +19,11 @@ Client-facing PHP dashboard for consolidating:
 - Client onboarding for logos, URLs, and source credentials
 - Source import by JSON, URL, or uploaded archive
 - Client-ready report downloads for PDF-ready print, Word, Excel, CSV, and JSON
-- Add-on management for MobSF and OASM Assistant integrations
+- Add-on management for MobSF, OASM Assistant, and Python pentest integrations
+- Tool inventory for scanners, mobile security, pentest, and assistant services
+- Pentest checklist tab and Open Attack Surface Management view
+- Client deliverables page for a printable bundle of findings, checklist, and OASM inventory
+- Audit console with SAST, DAST, SCA, Mobile, PT, and OASM filters
 
 ## Run it
 
@@ -47,7 +51,18 @@ Other demo users:
 Add-ons:
 
 - MobSF runs as a local Docker service on port `8000`
+- MobSF runs as root in the container so it can initialize its `.MobSF` config volume cleanly
 - OASM Assistant is tracked as an external assistant endpoint for attack-surface triage
+- sqlmap is packaged as an optional Python container for authorized testing workflows
+- Python Pentest Suite is packaged as a Python API for safe validation notes, evidence capture, and remediation planning
+- Open Attack Surface Management is packaged as a Python API for asset exposure tracking and scope control
+- OASM supports GUI edits, bulk JSON import, and an audit trail for asset changes
+
+Tool management:
+
+- Open `addons.php` to register new tools
+- Upload a tool logo so it shows in the dashboard and report
+- Choose the connection type: Docker, API, Python, or manual
 
 Useful screens:
 

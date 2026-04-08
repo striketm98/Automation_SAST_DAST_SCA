@@ -25,12 +25,21 @@ if ($pdo) {
         $findingStmt = $pdo->prepare('SELECT f.* FROM findings f INNER JOIN scan_runs s ON s.id = f.scan_run_id WHERE s.project_id = ? ORDER BY FIELD(f.severity, "critical","high","medium","low","info"), f.created_at DESC');
         $findingStmt->execute([$project['id']]);
         $findings = $findingStmt->fetchAll();
+
+        try {
+            $assetStmt = $pdo->prepare('SELECT * FROM attack_surface_assets WHERE project_id = ? ORDER BY created_at DESC');
+            $assetStmt->execute([$project['id']]);
+            $assets = $assetStmt->fetchAll();
+        } catch (Throwable $e) {
+            $assets = oasmAssetSamples();
+        }
     } else {
         $dashboard = sampleDashboard();
         $project = $dashboard['project'];
         $scanRuns = $dashboard['scan_runs'];
         $integrations = $dashboard['integrations'];
         $findings = $dashboard['findings'];
+        $assets = oasmAssetSamples();
     }
 
     $summary = [
@@ -48,6 +57,7 @@ if ($pdo) {
     $scanRuns = $dashboard['scan_runs'];
     $integrations = $dashboard['integrations'];
     $findings = $dashboard['findings'];
+    $assets = oasmAssetSamples();
     $summary = $dashboard['metrics'];
 }
 
@@ -55,6 +65,19 @@ $user = currentUser();
 $role = currentUserRole();
 $canManage = in_array($role, ['admin', 'manager'], true);
 $canImport = in_array($role, ['admin', 'manager', 'analyst'], true);
+$toolReady = count(array_filter($integrations, fn($tool) => ($tool['status'] ?? '') === 'ready'));
+$toolTotal = count($integrations);
+$pentestService = null;
+$oasmService = null;
+$enterpriseIntegrations = array_values(array_filter($integrations, fn($tool) => in_array((string) ($tool['connection_type'] ?? ''), ['api', 'python'], true) || in_array((string) ($tool['integration_profile'] ?? ''), ['webinspect', 'veracode', 'custom-paid-tool'], true) || !empty($tool['vendor_name'])));
+foreach ($integrations as $integration) {
+    if (($integration['name'] ?? '') === 'Python Pentest Suite') {
+        $pentestService = $integration;
+    }
+    if (($integration['name'] ?? '') === 'Open Attack Surface Management') {
+        $oasmService = $integration;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -78,7 +101,11 @@ $canImport = in_array($role, ['admin', 'manager', 'analyst'], true);
       <nav class="side-nav">
         <a class="side-link active" href="home.php">Dashboard</a>
         <a class="side-link" href="report.php">Executive report</a>
+        <a class="side-link" href="audit.php">Audit</a>
+        <a class="side-link" href="deliverables.php">Deliverables</a>
         <?php if ($canImport): ?><a class="side-link" href="import.php">Import results</a><?php endif; ?>
+        <a class="side-link" href="checklist.php">Pentest checklist</a>
+        <a class="side-link" href="oasm.php">Open ASM</a>
         <?php if ($canManage): ?>
           <a class="side-link" href="clients.php">Client onboarding</a>
           <a class="side-link" href="addons.php">Add-ons</a>
@@ -133,27 +160,160 @@ $canImport = in_array($role, ['admin', 'manager', 'analyst'], true);
           </div>
         </article>
 
+        <article class="panel metric-panel">
+          <div class="panel-header">
+            <h3>Tools up</h3>
+            <span class="muted"><?= (int) $toolReady ?> of <?= (int) $toolTotal ?></span>
+          </div>
+          <strong class="metric-value"><?= (int) $toolReady ?></strong>
+          <div class="mini-chart mini-a"></div>
+        </article>
+
+        <article class="panel metric-panel">
+          <div class="panel-header">
+            <h3>Python pentest</h3>
+            <span class="muted">Live service check</span>
+          </div>
+          <?php $pentestHealth = toolHealth((string) ($pentestService['endpoint_url'] ?? '')); ?>
+          <strong class="metric-value"><?= e($pentestHealth['label']) ?></strong>
+          <span class="muted"><?= e((string) $pentestHealth['detail']) ?></span>
+        </article>
+
+        <article class="panel metric-panel">
+          <div class="panel-header">
+            <h3>Open ASM</h3>
+            <span class="muted">Live service check</span>
+          </div>
+          <?php $oasmHealth = toolHealth((string) ($oasmService['endpoint_url'] ?? '')); ?>
+          <strong class="metric-value"><?= e($oasmHealth['label']) ?></strong>
+          <span class="muted"><?= e((string) $oasmHealth['detail']) ?></span>
+        </article>
+
         <article class="panel wide">
           <div class="panel-header">
-            <h3>Add-ons</h3>
-            <span class="muted">MobSF and OASM Assistant integrations</span>
+            <h3>Tool health</h3>
+            <span class="muted">Active scanners, mobile tools, pentest add-ons, and assistant endpoints</span>
           </div>
           <div class="finding-list">
             <?php foreach ($integrations as $integration): ?>
+              <?php $health = toolHealth((string) ($integration['endpoint_url'] ?? '')); ?>
               <article class="finding-card <?= e(integrationStatusClass((string) ($integration['status'] ?? 'configured'))) ?>">
                 <div class="finding-head">
-                  <strong><?= e((string) $integration['name']) ?></strong>
+                  <div class="brand-lockup">
+                    <img src="<?= e((string) ($integration['tool_logo_path'] ?? 'assets/img/cyber-logo.png')) ?>" alt="<?= e((string) $integration['name']) ?>" class="brand-mark">
+                    <div>
+                      <strong><?= e((string) $integration['name']) ?></strong>
+                      <div class="finding-badges">
+                        <span class="tag"><?= e(toolCategoryLabel((string) ($integration['tool_category'] ?? 'automation'))) ?></span>
+                        <span class="tag"><?= e(strtoupper((string) ($integration['connection_type'] ?? 'manual'))) ?></span>
+                      </div>
+                    </div>
+                  </div>
                   <div class="finding-badges">
-                    <span class="tag"><?= e(strtoupper((string) $integration['type'])) ?></span>
                     <span class="tag <?= e(integrationStatusClass((string) $integration['status'])) ?>"><?= e(strtoupper((string) $integration['status'])) ?></span>
                   </div>
                 </div>
                 <p><?= e((string) ($integration['description'] ?? '')) ?></p>
                 <div class="finding-foot">
                   <span><?= e((string) ($integration['endpoint_url'] ?? 'n/a')) ?></span>
-                  <span><?= e((string) ($integration['type'] === 'assistant' ? 'assistant channel' : 'scanner channel')) ?></span>
+                  <span><?= e($health['label']) ?>: <?= e((string) $health['detail']) ?></span>
                 </div>
               </article>
+            <?php endforeach; ?>
+          </div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-header">
+            <h3>Enterprise connectors</h3>
+            <span class="muted">Paid tools, API integrations, and custom connector presets</span>
+          </div>
+          <div class="finding-list">
+            <?php foreach ($enterpriseIntegrations as $integration): ?>
+              <?php
+                $status = (string) ($integration['last_test_status'] ?? 'unknown');
+                $statusClass = match ($status) {
+                    'up' => 'tag-resolved',
+                    'down' => 'tag-risk',
+                    'partial' => 'tag-false-positive',
+                    default => 'tag-open',
+                };
+              ?>
+              <article class="finding-card">
+                <div class="finding-head">
+                  <div class="brand-lockup">
+                    <img src="<?= e((string) ($integration['tool_logo_path'] ?? 'assets/img/cyber-logo.png')) ?>" alt="<?= e((string) $integration['name']) ?>" class="brand-mark">
+                    <div>
+                      <strong><?= e((string) $integration['name']) ?></strong>
+                      <div class="finding-badges">
+                        <?php if (!empty($integration['vendor_name'])): ?><span class="tag"><?= e((string) $integration['vendor_name']) ?></span><?php endif; ?>
+                        <?php if (!empty($integration['integration_profile'])): ?><span class="tag"><?= e(strtoupper((string) $integration['integration_profile'])) ?></span><?php endif; ?>
+                        <span class="tag"><?= e(toolCategoryLabel((string) ($integration['tool_category'] ?? 'automation'))) ?></span>
+                        <span class="tag"><?= e(strtoupper((string) ($integration['connection_type'] ?? 'manual'))) ?></span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="finding-badges">
+                    <span class="tag <?= e($statusClass) ?>"><?= e(strtoupper($status)) ?></span>
+                    <span class="tag <?= e(integrationStatusClass((string) ($integration['status'] ?? 'configured'))) ?>"><?= e(strtoupper((string) ($integration['status'] ?? 'configured'))) ?></span>
+                  </div>
+                </div>
+                <p><?= e((string) ($integration['description'] ?? '')) ?></p>
+                <div class="finding-foot">
+                  <span><?= e((string) ($integration['api_base_url'] ?? $integration['endpoint_url'] ?? 'n/a')) ?></span>
+                  <span><?= e((string) ($integration['scan_submit_url'] ?? '')) ?></span>
+                  <span><?= e((string) ($integration['result_url'] ?? '')) ?></span>
+                </div>
+                <div class="finding-foot">
+                  <span><?= e((string) ($integration['auth_type'] ?? 'auth not set')) ?></span>
+                  <span><?= e((string) ($integration['documentation_url'] ?? '')) ?></span>
+                  <span><?= e((string) ($integration['last_test_detail'] ?? 'No test result yet.')) ?></span>
+                </div>
+              </article>
+            <?php endforeach; ?>
+          </div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-header">
+            <h3>Authorized pentest playbook</h3>
+            <span class="muted">Python-driven validation notes and safe evidence capture</span>
+          </div>
+          <div class="activity-list">
+            <?php foreach (pentestPlaybook() as $item): ?>
+              <div class="activity-row">
+                <div class="activity-dot"></div>
+                <div class="activity-main">
+                  <strong><?= e((string) $item['title']) ?></strong>
+                  <span><?= e((string) $item['summary']) ?></span>
+                </div>
+                <div class="activity-meta">
+                  <span class="tag tag-okay">Python</span>
+                  <span class="tag"><?= e('Pentest') ?></span>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-header">
+            <h3>Open ASM</h3>
+            <span class="muted">Tracked assets, exposures, and scope signals</span>
+          </div>
+          <div class="activity-list">
+            <?php foreach ($assets as $asset): ?>
+              <div class="activity-row">
+                <div class="activity-dot"></div>
+                <div class="activity-main">
+                  <strong><?= e((string) $asset['asset_name']) ?></strong>
+                  <span><?= e((string) ($asset['notes'] ?? '')) ?></span>
+                </div>
+                <div class="activity-meta">
+                  <span class="tag"><?= e(strtoupper((string) $asset['asset_type'])) ?></span>
+                  <span class="tag <?= e($asset['exposure'] === 'public' ? 'tag-risk' : 'tag-okay') ?>"><?= e(strtoupper((string) $asset['exposure'])) ?></span>
+                </div>
+              </div>
             <?php endforeach; ?>
           </div>
         </article>

@@ -29,7 +29,7 @@ unset($_SESSION['auth_error']);
         <div>
           <p class="eyebrow">cyber-Security intelligence platform</p>
           <h1>Executive-ready cyber reporting in one secure workspace.</h1>
-          <p class="subhead">Access a refined dashboard for SAST, DAST, SonarQube, ZAP, and dependency-risk oversight, designed for both leadership and delivery teams.</p>
+          <p class="subhead">Access a refined dashboard for SAST, DAST, SCA, Mobile, PT, and OASM oversight, designed for both leadership and delivery teams.</p>
         </div>
       </div>
       <div class="login-metrics">
@@ -41,9 +41,9 @@ unset($_SESSION['auth_error']);
 
     <section class="login-card">
       <div class="login-card-head">
-        <span class="pill pill-success">Secure access</span>
+        <span class="pill pill-success">Welcome back</span>
         <h2>Sign in</h2>
-        <p>Use your assigned credentials to review findings and reports.</p>
+        <p>Use your assigned credentials to review findings, reports, and delivery artifacts.</p>
       </div>
 
       <?php if ($error): ?>

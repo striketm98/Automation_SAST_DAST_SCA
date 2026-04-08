@@ -16,6 +16,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $sourceMode = (string) ($_POST['source_mode'] ?? 'manual');
     $sourceDetail = trim((string) ($_POST['source_detail'] ?? ''));
     $artifactPath = null;
+    $decodedPayload = [];
+    $sourceKey = strtolower($source);
+    $toolName = $source !== '' ? $source : 'Imported scan';
+    $scanType = match (true) {
+        str_contains($sourceKey, 'sonar') => 'sonarqube',
+        str_contains($sourceKey, 'zap') => 'zap',
+        str_contains($sourceKey, 'mobsf') || str_contains($sourceKey, 'mobile') => 'sast',
+        str_contains($sourceKey, 'dependency') || str_contains($sourceKey, 'sca') => 'sca',
+        default => 'sast',
+    };
 
     if (!$pdo) {
         $error = 'Database is unavailable. Start MySQL through Docker Compose first.';
@@ -53,38 +63,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if (!$error && $pdo && $projectId > 0) {
-        $stmt = $pdo->prepare('INSERT INTO imports (project_id, source_type, source_name, source_detail, artifact_path, file_name) VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->execute([
-            $projectId,
-            $sourceMode,
-            $source,
-            $sourceDetail !== '' ? $sourceDetail : null,
-            $artifactPath,
-            $artifactPath ? basename($artifactPath) : 'manual-import.json',
-        ]);
+        if (!$error && $pdo && $projectId > 0) {
+            $stmt = $pdo->prepare('INSERT INTO imports (project_id, source_type, source_name, source_detail, artifact_path, file_name) VALUES (?, ?, ?, ?, ?, ?)');
+            $stmt->execute([
+                $projectId,
+                $sourceMode,
+                $source,
+                $sourceDetail !== '' ? $sourceDetail : null,
+                $artifactPath,
+                $artifactPath ? basename($artifactPath) : 'manual-import.json',
+            ]);
 
-        $scanStmt = $pdo->prepare('INSERT INTO scan_runs (project_id, scan_type, tool_name, status, summary, raw_payload) VALUES (?, ?, ?, ?, ?, ?)');
-        $scanType = match (strtolower($source)) {
-            'sonarqube' => 'sonarqube',
-            'owasp zap', 'zap' => 'zap',
-            'dependency-check', 'sca' => 'sca',
-            default => 'sast',
-        };
-        $scanStmt->execute([
-            $projectId,
-            $scanType,
-            $source . ($artifactPath ? ' (uploaded archive)' : ''),
-            'completed',
-            $sourceMode === 'upload'
-                ? 'Imported security results from an uploaded source archive.'
-                : ($sourceMode === 'url'
-                    ? 'Imported security results from a source URL.'
-                    : 'Imported security results from the client workflow.'),
-            json_encode($decodedPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-        ]);
+            if (is_array($decodedPayload) && !empty($decodedPayload['tool_name'])) {
+                $toolName = trim((string) $decodedPayload['tool_name']);
+            } elseif (is_array($decodedPayload) && !empty($decodedPayload['tool'])) {
+                $toolName = trim((string) $decodedPayload['tool']);
+            } elseif (is_array($decodedPayload) && !empty($decodedPayload['scan_type'])) {
+                $scanType = strtolower(trim((string) $decodedPayload['scan_type']));
+            }
 
-        $message = 'Import stored successfully. The report pages can now reflect the new run.';
+            if (!in_array($scanType, ['sast', 'dast', 'sca', 'sonarqube', 'zap'], true)) {
+                $scanType = 'sast';
+            }
+
+            $scanStmt = $pdo->prepare('INSERT INTO scan_runs (project_id, scan_type, tool_name, status, summary, raw_payload) VALUES (?, ?, ?, ?, ?, ?)');
+            $scanStmt->execute([
+                $projectId,
+                $scanType,
+                $toolName . ($artifactPath ? ' (uploaded archive)' : ''),
+                'completed',
+                $sourceMode === 'upload'
+                    ? 'Imported security results from an uploaded source archive.'
+                    : ($sourceMode === 'url'
+                        ? 'Imported security results from a source URL.'
+                        : 'Imported security results from the client workflow.'),
+                json_encode($decodedPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            ]);
+
+            $scanRunId = (int) $pdo->lastInsertId();
+            $findingCount = 0;
+            if (is_array($decodedPayload)) {
+                $findingCount = ingestImportedFindings($pdo, $scanRunId, $source, $toolName, $scanType, $decodedPayload);
+            }
+
+            if ($findingCount > 0) {
+                $summaryStmt = $pdo->prepare('UPDATE scan_runs SET summary = ? WHERE id = ?');
+                $summaryStmt->execute([
+                    sprintf(
+                        'Imported %d finding%s from %s. AI issue summaries, remediation, and validation notes were auto-populated.',
+                        $findingCount,
+                        $findingCount === 1 ? '' : 's',
+                        $toolName
+                    ),
+                    $scanRunId,
+                ]);
+            }
+
+            $message = $findingCount > 0
+                ? 'Import stored successfully and findings were normalized into the report.'
+                : 'Import stored successfully. The report pages can now reflect the new run.';
+        }
     }
 }
 
@@ -109,6 +147,7 @@ if ($pdo) {
         <p class="eyebrow">cyber-Security import</p>
         <h1>Import scan results with confidence</h1>
         <p class="subhead">Paste normalized JSON from SonarQube, ZAP, dependency-check, or your internal SAST tooling to keep every finding in one governed record.</p>
+        <p class="subhead">Supported imports: SonarQube, OWASP ZAP, MobSF, dependency-check, and other normalized JSON feeds. AI summaries and remediation notes are auto-filled when possible.</p>
       </div>
       <div class="topbar-actions">
         <a class="button ghost" href="home.php">Dashboard</a>
@@ -152,7 +191,7 @@ if ($pdo) {
         </label>
         <label class="full">
           <span>Payload JSON</span>
-          <textarea name="payload" rows="12" placeholder='{"summary":"Import your normalized scan payload here"}' required></textarea>
+          <textarea name="payload" rows="12" placeholder='{"issues":[{"title":"Example finding","severity":"high","description":"..." }]}' required></textarea>
         </label>
         <div class="form-actions full">
           <button class="button" type="submit">Save import</button>

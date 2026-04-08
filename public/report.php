@@ -26,6 +26,14 @@ if ($pdo) {
         $findingStmt = $pdo->prepare('SELECT f.* FROM findings f INNER JOIN scan_runs s ON s.id = f.scan_run_id WHERE s.project_id = ? ORDER BY FIELD(f.severity, "critical","high","medium","low","info"), f.created_at DESC');
         $findingStmt->execute([$project['id']]);
         $findings = $findingStmt->fetchAll();
+
+        try {
+            $assetStmt = $pdo->prepare('SELECT * FROM attack_surface_assets WHERE project_id = ? ORDER BY created_at DESC');
+            $assetStmt->execute([$project['id']]);
+            $assets = $assetStmt->fetchAll();
+        } catch (Throwable $e) {
+            $assets = oasmAssetSamples();
+        }
     } else {
         $useSample = true;
     }
@@ -37,6 +45,7 @@ if ($useSample) {
     $scanRuns = $dashboard['scan_runs'];
     $integrations = $dashboard['integrations'];
     $findings = $dashboard['findings'];
+    $assets = oasmAssetSamples();
 }
 
 $reviewError = $_SESSION['review_error'] ?? null;
@@ -48,6 +57,26 @@ $high = count(array_filter($findings, fn($f) => $f['severity'] === 'high'));
 $medium = count(array_filter($findings, fn($f) => $f['severity'] === 'medium'));
 $low = count(array_filter($findings, fn($f) => $f['severity'] === 'low'));
 $open = count($findings);
+$toolReady = count(array_filter($integrations, fn($tool) => ($tool['status'] ?? '') === 'ready'));
+$toolTotal = count($integrations);
+$pentestService = null;
+$oasmService = null;
+foreach ($integrations as $integration) {
+    if (($integration['name'] ?? '') === 'Python Pentest Suite') {
+        $pentestService = $integration;
+    }
+    if (($integration['name'] ?? '') === 'Open Attack Surface Management') {
+        $oasmService = $integration;
+    }
+}
+$domainCards = [
+    ['label' => 'SAST', 'count' => count(array_filter($scanRuns, fn($run) => ($run['scan_type'] ?? '') === 'sast')), 'hint' => 'Static code review'],
+    ['label' => 'DAST', 'count' => count(array_filter($scanRuns, fn($run) => ($run['scan_type'] ?? '') === 'dast' || ($run['scan_type'] ?? '') === 'zap')), 'hint' => 'Dynamic web testing'],
+    ['label' => 'SCA', 'count' => count(array_filter($scanRuns, fn($run) => ($run['scan_type'] ?? '') === 'sca')), 'hint' => 'Dependency analysis'],
+    ['label' => 'Mobile', 'count' => count(array_filter($integrations, fn($tool) => ($tool['tool_category'] ?? '') === 'mobile')), 'hint' => 'MobSF / APK review'],
+    ['label' => 'Pentest', 'count' => count(array_filter($integrations, fn($tool) => ($tool['tool_category'] ?? '') === 'pentest')), 'hint' => 'Authorized testing'],
+    ['label' => 'Automation', 'count' => count(array_filter($integrations, fn($tool) => ($tool['tool_category'] ?? '') === 'automation')), 'hint' => 'Workflow helpers'],
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -74,6 +103,10 @@ $open = count($findings);
         <a class="button ghost" href="export.php?format=xls">Excel</a>
         <a class="button ghost" href="export.php?format=csv">CSV</a>
         <a class="button ghost" href="export.php?format=json">JSON</a>
+        <a class="button ghost" href="audit.php">Audit</a>
+        <a class="button ghost" href="checklist.php">Checklist</a>
+        <a class="button ghost" href="oasm.php">Open ASM</a>
+        <a class="button ghost" href="deliverables.php">Deliverables</a>
         <a class="button" href="home.php">Back to dashboard</a>
       </div>
     </header>
@@ -87,6 +120,23 @@ $open = count($findings);
       <div class="summary-card"><span>High</span><strong><?= (int) $high ?></strong></div>
       <div class="summary-card"><span>Medium</span><strong><?= (int) $medium ?></strong></div>
       <div class="summary-card"><span>Low</span><strong><?= (int) $low ?></strong></div>
+      <div class="summary-card"><span>Tools up</span><strong><?= (int) $toolReady ?>/<?= (int) $toolTotal ?></strong></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Assessment domains</h3>
+        <span class="muted">Static, dynamic, mobile, and pentest coverage</span>
+      </div>
+      <div class="access-grid">
+        <?php foreach ($domainCards as $card): ?>
+          <div>
+            <span><?= e($card['label']) ?></span>
+            <strong><?= (int) $card['count'] ?></strong>
+            <small class="muted"><?= e($card['hint']) ?></small>
+          </div>
+        <?php endforeach; ?>
+      </div>
     </section>
 
     <section class="panel">
@@ -96,7 +146,7 @@ $open = count($findings);
       <div class="scope-grid">
         <div><span>Repository</span><strong><?= e((string) ($project['repository_url'] ?? 'n/a')) ?></strong></div>
         <div><span>Target</span><strong><?= e((string) ($project['target_url'] ?? 'n/a')) ?></strong></div>
-        <div><span>Coverage model</span><strong>SAST, DAST, SonarQube, ZAP, and SCA</strong></div>
+        <div><span>Coverage model</span><strong>SAST, DAST, SCA, MobSF, and Python pentest validation</strong></div>
         <div><span>Delivery</span><strong>HTML report, printable view, and MySQL archive</strong></div>
       </div>
     </section>
@@ -116,25 +166,79 @@ $open = count($findings);
 
     <section class="panel">
       <div class="panel-header">
-        <h3>Add-ons</h3>
-        <span class="muted">Mobile and assistant integrations</span>
+        <h3>Open ASM</h3>
+        <span class="muted">Asset exposure overview from the OASM module</span>
+      </div>
+      <div class="access-grid">
+        <div><span>Total assets</span><strong><?= (int) count($assets) ?></strong></div>
+        <div><span>Public</span><strong><?= (int) count(array_filter($assets, fn($asset) => ($asset['exposure'] ?? '') === 'public')) ?></strong></div>
+        <div><span>Internal</span><strong><?= (int) count(array_filter($assets, fn($asset) => ($asset['exposure'] ?? '') === 'internal')) ?></strong></div>
+        <div><span>Reviewed</span><strong><?= (int) count(array_filter($assets, fn($asset) => ($asset['status'] ?? '') === 'reviewed')) ?></strong></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Tool health</h3>
+        <span class="muted">Up, configured, and disabled tools with logos</span>
       </div>
       <div class="finding-list">
         <?php foreach ($integrations as $integration): ?>
           <article class="finding-card <?= e(integrationStatusClass((string) ($integration['status'] ?? 'configured'))) ?>">
             <div class="finding-head">
-              <strong><?= e((string) $integration['name']) ?></strong>
+              <div class="brand-lockup">
+                <img src="<?= e((string) ($integration['tool_logo_path'] ?? 'assets/img/cyber-logo.png')) ?>" alt="<?= e((string) $integration['name']) ?>" class="brand-mark">
+                <div>
+                  <strong><?= e((string) $integration['name']) ?></strong>
+                  <div class="finding-badges">
+                    <span class="tag"><?= e(toolCategoryLabel((string) ($integration['tool_category'] ?? 'automation'))) ?></span>
+                    <span class="tag"><?= e(strtoupper((string) ($integration['connection_type'] ?? 'manual'))) ?></span>
+                  </div>
+                </div>
+              </div>
               <div class="finding-badges">
-                <span class="tag"><?= e(strtoupper((string) $integration['type'])) ?></span>
                 <span class="tag <?= e(integrationStatusClass((string) $integration['status'])) ?>"><?= e(strtoupper((string) $integration['status'])) ?></span>
               </div>
             </div>
             <p><?= e((string) ($integration['description'] ?? '')) ?></p>
             <div class="finding-foot">
               <span><?= e((string) ($integration['endpoint_url'] ?? 'n/a')) ?></span>
-              <span><?= e((string) ($integration['type'] === 'assistant' ? 'assistant channel' : 'scanner channel')) ?></span>
+              <span><?= e((string) ($integration['status'] === 'ready' ? 'up' : 'needs review')) ?></span>
             </div>
           </article>
+        <?php endforeach; ?>
+      </div>
+    </section>
+
+    <section class="report-summary">
+      <?php $pentestHealth = toolHealth((string) ($pentestService['endpoint_url'] ?? '')); ?>
+      <?php $oasmHealth = toolHealth((string) ($oasmService['endpoint_url'] ?? '')); ?>
+      <div class="summary-card"><span>Python pentest</span><strong><?= e($pentestHealth['label']) ?></strong></div>
+      <div class="summary-card"><span>OASM</span><strong><?= e($oasmHealth['label']) ?></strong></div>
+      <div class="summary-card"><span>Pentest endpoint</span><strong><?= e((string) ($pentestHealth['detail'] ?? 'n/a')) ?></strong></div>
+      <div class="summary-card"><span>OASM endpoint</span><strong><?= e((string) ($oasmHealth['detail'] ?? 'n/a')) ?></strong></div>
+      <div class="summary-card"><span>Checklist sections</span><strong><?= (int) count(pentestChecklist()) ?></strong></div>
+      <div class="summary-card"><span>ASM assets</span><strong><?= (int) count($assets) ?></strong></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Python pentest playbook</h3>
+        <span class="muted">Safe validation workflow for authorized testing only</span>
+      </div>
+      <div class="activity-list">
+        <?php foreach (pentestPlaybook() as $item): ?>
+          <div class="activity-row">
+            <div class="activity-dot"></div>
+            <div class="activity-main">
+              <strong><?= e((string) $item['title']) ?></strong>
+              <span><?= e((string) $item['summary']) ?></span>
+            </div>
+            <div class="activity-meta">
+              <span class="tag tag-okay">Python</span>
+              <span class="tag">Validation</span>
+            </div>
+          </div>
         <?php endforeach; ?>
       </div>
     </section>
@@ -148,6 +252,19 @@ $open = count($findings);
         <?php foreach (cweCatalog() as $cwe => $label): ?>
           <span class="tag"><?= e($cwe . ' ' . $label) ?></span>
         <?php endforeach; ?>
+      </div>
+    </section>
+
+    <section class="panel wide">
+      <div class="panel-header">
+        <h3>Checklist and ASM export snapshot</h3>
+        <span class="muted">Included in Word and Excel exports for client delivery</span>
+      </div>
+      <div class="access-grid">
+        <div><span>Checklist sections</span><strong><?= (int) count(pentestChecklist()) ?></strong></div>
+        <div><span>OASM assets</span><strong><?= (int) count($assets) ?></strong></div>
+        <div><span>Python pentest</span><strong>Safe validation playbook</strong></div>
+        <div><span>Delivery</span><strong>DOC, XLS, CSV, JSON, PDF-ready</strong></div>
       </div>
     </section>
 
@@ -168,8 +285,17 @@ $open = count($findings);
             </div>
             <p><?= e((string) $finding['description']) ?></p>
             <p class="recommendation"><strong>Recommendation:</strong> <?= e((string) $finding['recommendation']) ?></p>
+            <?php if (!empty($finding['ai_issue_summary'])): ?>
+              <p class="ai-summary"><strong>AI issue summary:</strong> <?= e((string) $finding['ai_issue_summary']) ?></p>
+            <?php endif; ?>
             <?php if (!empty($finding['ai_summary'])): ?>
               <p class="ai-summary"><strong>AI triage:</strong> <?= e((string) $finding['ai_summary']) ?><?php if (!empty($finding['ai_confidence'])): ?> (<?= (int) $finding['ai_confidence'] ?>%)<?php endif; ?></p>
+            <?php endif; ?>
+            <?php if (!empty($finding['ai_remediation'])): ?>
+              <p class="recommendation"><strong>AI remediation:</strong> <?= e((string) $finding['ai_remediation']) ?></p>
+            <?php endif; ?>
+            <?php if (!empty($finding['validation_notes'])): ?>
+              <p class="ai-summary"><strong>Validation evidence:</strong> <?= e((string) $finding['validation_notes']) ?></p>
             <?php endif; ?>
             <div class="finding-foot">
               <span><?= e((string) $finding['category']) ?></span>
@@ -192,12 +318,24 @@ $open = count($findings);
                 <input type="text" name="cwe_id" value="<?= e((string) ($finding['cwe_id'] ?? '')) ?>" placeholder="CWE-78">
               </label>
               <label class="full">
+                <span>AI issue summary</span>
+                <textarea name="ai_issue_summary" rows="2" placeholder="What the AI detected"><?= e((string) ($finding['ai_issue_summary'] ?? '')) ?></textarea>
+              </label>
+              <label class="full">
                 <span>Analyst comment</span>
                 <textarea name="analyst_comment" rows="3" placeholder="Why is this marked false positive or what should be done next?"><?= e((string) ($finding['analyst_comment'] ?? '')) ?></textarea>
               </label>
               <label class="full">
                 <span>AI summary</span>
                 <textarea name="ai_summary" rows="2" placeholder="AI triage note"><?= e((string) ($finding['ai_summary'] ?? '')) ?></textarea>
+              </label>
+              <label class="full">
+                <span>AI remediation</span>
+                <textarea name="ai_remediation" rows="2" placeholder="Recommended fix in one or two lines"><?= e((string) ($finding['ai_remediation'] ?? '')) ?></textarea>
+              </label>
+              <label class="full">
+                <span>Validation evidence</span>
+                <textarea name="validation_notes" rows="2" placeholder="Safe reproduction notes, screenshots, or validation context"><?= e((string) ($finding['validation_notes'] ?? '')) ?></textarea>
               </label>
               <label>
                 <span>AI confidence</span>

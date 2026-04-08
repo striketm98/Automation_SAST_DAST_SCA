@@ -9,6 +9,7 @@ RUN sed -i 's#/var/www/html#/var/www/html/public#g' /etc/apache2/sites-available
 COPY . /var/www/html
 
 RUN mkdir -p /var/www/html/public/uploads/client-logos /var/www/html/storage/source-uploads
+RUN mkdir -p /var/www/html/public/uploads/tool-logos
 RUN chown -R www-data:www-data /var/www/html
 
 EXPOSE 80
