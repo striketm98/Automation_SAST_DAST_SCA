@@ -1,0 +1,66 @@
+services:
+  app:
+    build: .
+    container_name: security-dashboard-app
+    ports:
+      - "8080:80"
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: security_dashboard
+      DB_USER: dashboard
+      DB_PASSWORD: dashboard123
+      APP_NAME: "cyber-Security"
+    depends_on:
+      - db
+    volumes:
+      - ./:/var/www/html
+
+  db:
+    image: mysql:8.4
+    container_name: security-dashboard-db
+    environment:
+      MYSQL_DATABASE: security_dashboard
+      MYSQL_USER: dashboard
+      MYSQL_PASSWORD: dashboard123
+      MYSQL_ROOT_PASSWORD: root123
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: security-dashboard-sonarqube
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: security-dashboard-zap
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - zap_reports:/zap/wrk
+
+  dependency-check:
+    image: owasp/dependency-check:latest
+    container_name: security-dashboard-dependency-check
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - ./:/src
+      - dependency_check_reports:/report
+
+volumes:
+  db_data:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+  zap_reports:
+  dependency_check_reports:
