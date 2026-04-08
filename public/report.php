@@ -15,6 +15,14 @@ if ($pdo) {
         $scanStmt->execute([$project['id']]);
         $scanRuns = $scanStmt->fetchAll();
 
+        try {
+            $integrationStmt = $pdo->prepare('SELECT * FROM integrations WHERE project_id = ? ORDER BY created_at DESC');
+            $integrationStmt->execute([$project['id']]);
+            $integrations = $integrationStmt->fetchAll();
+        } catch (Throwable $e) {
+            $integrations = sampleDashboard()['integrations'];
+        }
+
         $findingStmt = $pdo->prepare('SELECT f.* FROM findings f INNER JOIN scan_runs s ON s.id = f.scan_run_id WHERE s.project_id = ? ORDER BY FIELD(f.severity, "critical","high","medium","low","info"), f.created_at DESC');
         $findingStmt->execute([$project['id']]);
         $findings = $findingStmt->fetchAll();
@@ -27,6 +35,7 @@ if ($useSample) {
     $dashboard = sampleDashboard();
     $project = $dashboard['project'];
     $scanRuns = $dashboard['scan_runs'];
+    $integrations = $dashboard['integrations'];
     $findings = $dashboard['findings'];
 }
 
@@ -48,21 +57,24 @@ $open = count($findings);
   <title><?= e(appName()) ?> Report - <?= e((string) $project['name']) ?></title>
   <link rel="icon" href="assets/img/favicon.ico">
   <link rel="stylesheet" href="assets/css/app.css">
+  <?php if (isset($_GET['print'])): ?><script>window.addEventListener('load', () => window.print());</script><?php endif; ?>
 </head>
 <body class="report-page">
   <div class="page-shell report-shell">
     <header class="report-header">
       <div class="brand-lockup">
-        <img src="assets/img/cyber-logo.png" alt="cyber-Security logo" class="brand-mark">
+        <img src="<?= e((string) ($project['client_logo_path'] ?? 'assets/img/cyber-logo.png')) ?>" alt="cyber-Security logo" class="brand-mark">
         <p class="eyebrow">Executive security report</p>
         <h1><?= e((string) $project['name']) ?></h1>
         <p class="subhead">Prepared for <?= e((string) $project['client_name']) ?>. This consolidated report brings together application security, code quality, and dependency risk in a single decision-ready view.</p>
       </div>
       <div class="report-actions">
-        <button class="button ghost" onclick="window.print()">Print / PDF</button>
-        <a class="button ghost" href="export.php?format=csv">Export CSV</a>
-        <a class="button ghost" href="export.php?format=json">Export JSON</a>
-        <a class="button" href="index.php">Back to dashboard</a>
+        <a class="button ghost" href="report.php?print=1">Download PDF</a>
+        <a class="button ghost" href="export.php?format=doc">Word</a>
+        <a class="button ghost" href="export.php?format=xls">Excel</a>
+        <a class="button ghost" href="export.php?format=csv">CSV</a>
+        <a class="button ghost" href="export.php?format=json">JSON</a>
+        <a class="button" href="home.php">Back to dashboard</a>
       </div>
     </header>
 
@@ -86,6 +98,44 @@ $open = count($findings);
         <div><span>Target</span><strong><?= e((string) ($project['target_url'] ?? 'n/a')) ?></strong></div>
         <div><span>Coverage model</span><strong>SAST, DAST, SonarQube, ZAP, and SCA</strong></div>
         <div><span>Delivery</span><strong>HTML report, printable view, and MySQL archive</strong></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Client access</h3>
+        <span class="muted">Portal, source repository, and credentials reference</span>
+      </div>
+      <div class="access-grid">
+        <div><span>Portal</span><strong><?= e((string) ($project['portal_url'] ?? $project['target_url'] ?? 'n/a')) ?></strong></div>
+        <div><span>Source URL</span><strong><?= e((string) ($project['source_url'] ?? 'n/a')) ?></strong></div>
+        <div><span>Source user</span><strong><?= e((string) ($project['source_username'] ?? 'n/a')) ?></strong></div>
+        <div><span>Password note</span><strong><?= e((string) ($project['source_password_hint'] ?? 'n/a')) ?></strong></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Add-ons</h3>
+        <span class="muted">Mobile and assistant integrations</span>
+      </div>
+      <div class="finding-list">
+        <?php foreach ($integrations as $integration): ?>
+          <article class="finding-card <?= e(integrationStatusClass((string) ($integration['status'] ?? 'configured'))) ?>">
+            <div class="finding-head">
+              <strong><?= e((string) $integration['name']) ?></strong>
+              <div class="finding-badges">
+                <span class="tag"><?= e(strtoupper((string) $integration['type'])) ?></span>
+                <span class="tag <?= e(integrationStatusClass((string) $integration['status'])) ?>"><?= e(strtoupper((string) $integration['status'])) ?></span>
+              </div>
+            </div>
+            <p><?= e((string) ($integration['description'] ?? '')) ?></p>
+            <div class="finding-foot">
+              <span><?= e((string) ($integration['endpoint_url'] ?? 'n/a')) ?></span>
+              <span><?= e((string) ($integration['type'] === 'assistant' ? 'assistant channel' : 'scanner channel')) ?></span>
+            </div>
+          </article>
+        <?php endforeach; ?>
       </div>
     </section>
 

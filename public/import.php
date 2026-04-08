@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/auth.php';
-requireLogin();
+requireRole(['admin', 'manager', 'analyst']);
 
 $pdo = Database::pdo();
 $message = null;
@@ -13,6 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $source = trim((string) ($_POST['source_name'] ?? ''));
     $payload = trim((string) ($_POST['payload'] ?? ''));
     $projectId = (int) ($_POST['project_id'] ?? 0);
+    $sourceMode = (string) ($_POST['source_mode'] ?? 'manual');
+    $sourceDetail = trim((string) ($_POST['source_detail'] ?? ''));
+    $artifactPath = null;
 
     if (!$pdo) {
         $error = 'Database is unavailable. Start MySQL through Docker Compose first.';
@@ -22,12 +25,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $decodedPayload = json_decode($payload, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
             $error = 'Payload must be valid JSON so it can be stored in MySQL.';
+        } elseif ($sourceMode === 'upload') {
+            if (empty($_FILES['source_archive']['name']) || !is_uploaded_file($_FILES['source_archive']['tmp_name'])) {
+                $error = 'Please upload a source archive or choose URL mode.';
+            } else {
+                $uploadDir = __DIR__ . '/../storage/source-uploads';
+                if (!is_dir($uploadDir)) {
+                    mkdir($uploadDir, 0775, true);
+                }
+
+                $extension = strtolower(pathinfo((string) $_FILES['source_archive']['name'], PATHINFO_EXTENSION));
+                $allowed = ['zip', 'tar', 'gz', 'tgz'];
+                if (!in_array($extension, $allowed, true)) {
+                    $error = 'Source archive must be ZIP, TAR, GZ, or TGZ.';
+                } else {
+                    $archiveName = uniqid('source-', true) . '.' . $extension;
+                    $archiveTarget = $uploadDir . DIRECTORY_SEPARATOR . $archiveName;
+                    if (move_uploaded_file($_FILES['source_archive']['tmp_name'], $archiveTarget)) {
+                        $artifactPath = 'storage/source-uploads/' . $archiveName;
+                    } else {
+                        $error = 'Unable to save the uploaded source archive.';
+                    }
+                }
+            }
+        } elseif ($sourceMode === 'url' && $sourceDetail === '') {
+            $error = 'Please provide a source URL for URL-based imports.';
         }
     }
 
     if (!$error && $pdo && $projectId > 0) {
-        $stmt = $pdo->prepare('INSERT INTO imports (project_id, source_name, file_name) VALUES (?, ?, ?)');
-        $stmt->execute([$projectId, $source, 'manual-import.json']);
+        $stmt = $pdo->prepare('INSERT INTO imports (project_id, source_type, source_name, source_detail, artifact_path, file_name) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([
+            $projectId,
+            $sourceMode,
+            $source,
+            $sourceDetail !== '' ? $sourceDetail : null,
+            $artifactPath,
+            $artifactPath ? basename($artifactPath) : 'manual-import.json',
+        ]);
 
         $scanStmt = $pdo->prepare('INSERT INTO scan_runs (project_id, scan_type, tool_name, status, summary, raw_payload) VALUES (?, ?, ?, ?, ?, ?)');
         $scanType = match (strtolower($source)) {
@@ -39,9 +74,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $scanStmt->execute([
             $projectId,
             $scanType,
-            $source,
+            $source . ($artifactPath ? ' (uploaded archive)' : ''),
             'completed',
-            'Imported security results from the client workflow.',
+            $sourceMode === 'upload'
+                ? 'Imported security results from an uploaded source archive.'
+                : ($sourceMode === 'url'
+                    ? 'Imported security results from a source URL.'
+                    : 'Imported security results from the client workflow.'),
             json_encode($decodedPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         ]);
 
@@ -72,7 +111,7 @@ if ($pdo) {
         <p class="subhead">Paste normalized JSON from SonarQube, ZAP, dependency-check, or your internal SAST tooling to keep every finding in one governed record.</p>
       </div>
       <div class="topbar-actions">
-        <a class="button ghost" href="index.php">Dashboard</a>
+        <a class="button ghost" href="home.php">Dashboard</a>
         <a class="button" href="report.php">Report</a>
       </div>
     </header>
@@ -81,7 +120,7 @@ if ($pdo) {
       <?php if ($message): ?><div class="notice success"><?= e((string) $message) ?></div><?php endif; ?>
       <?php if ($error): ?><div class="notice danger"><?= e((string) $error) ?></div><?php endif; ?>
 
-      <form method="post" class="import-form">
+      <form method="post" enctype="multipart/form-data" class="import-form">
         <label>
           <span>Project</span>
           <select name="project_id" required>
@@ -92,8 +131,24 @@ if ($pdo) {
           </select>
         </label>
         <label>
+          <span>Import mode</span>
+          <select name="source_mode">
+            <option value="manual">Manual JSON</option>
+            <option value="url">Source URL</option>
+            <option value="upload">Archive upload</option>
+          </select>
+        </label>
+        <label>
           <span>Source name</span>
           <input type="text" name="source_name" placeholder="SonarQube / OWASP ZAP / Dependency-Check" required>
+        </label>
+        <label>
+          <span>Source reference URL</span>
+          <input type="url" name="source_detail" placeholder="https://github.com/org/repo or tool endpoint">
+        </label>
+        <label class="full">
+          <span>Upload source archive</span>
+          <input type="file" name="source_archive" accept=".zip,.tar,.gz,.tgz">
         </label>
         <label class="full">
           <span>Payload JSON</span>
@@ -101,7 +156,7 @@ if ($pdo) {
         </label>
         <div class="form-actions full">
           <button class="button" type="submit">Save import</button>
-          <a class="button ghost" href="index.php">Cancel</a>
+          <a class="button ghost" href="home.php">Cancel</a>
         </div>
       </form>
     </section>

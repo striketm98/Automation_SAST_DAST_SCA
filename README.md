@@ -15,6 +15,11 @@ Client-facing PHP dashboard for consolidating:
 - A unified report page with summary cards, risk breakdowns, and export options
 - Docker Compose stack for the app, MySQL, SonarQube, ZAP, and Dependency-Check
 - Login-gated access with a demo admin account
+- Role-based access for admin, manager, analyst, and client users
+- Client onboarding for logos, URLs, and source credentials
+- Source import by JSON, URL, or uploaded archive
+- Client-ready report downloads for PDF-ready print, Word, Excel, CSV, and JSON
+- Add-on management for MobSF and OASM Assistant integrations
 
 ## Run it
 
@@ -31,6 +36,23 @@ Login:
 
 - Email: `admin@cyber-security.local`
 - Password: `ChangeMe123!`
+
+Other demo users:
+
+- `manager@cyber-security.local`
+- `analyst@cyber-security.local`
+- `client@cyber-security.local`
+
+Add-ons:
+
+- MobSF runs as a local Docker service on port `8000`
+- OASM Assistant is tracked as an external assistant endpoint for attack-surface triage
+
+Useful screens:
+
+- `home.php` dashboard
+- `clients.php` client onboarding
+- `addons.php` add-ons management
 
 ## Importing results
 

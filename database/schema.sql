@@ -6,18 +6,33 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(160) NOT NULL UNIQUE,
   display_name VARCHAR(160) NOT NULL,
   password_sha256 CHAR(64) NOT NULL,
-  role ENUM('admin','analyst','client') NOT NULL DEFAULT 'admin',
+  role ENUM('admin','manager','analyst','client') NOT NULL DEFAULT 'admin',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users
+  MODIFY role ENUM('admin','manager','analyst','client') NOT NULL DEFAULT 'admin';
 
 CREATE TABLE IF NOT EXISTS projects (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(160) NOT NULL,
   client_name VARCHAR(160) NOT NULL,
+  client_logo_path VARCHAR(255) DEFAULT NULL,
+  portal_url VARCHAR(255) DEFAULT NULL,
   repository_url VARCHAR(255) DEFAULT NULL,
   target_url VARCHAR(255) DEFAULT NULL,
+  source_url VARCHAR(255) DEFAULT NULL,
+  source_username VARCHAR(160) DEFAULT NULL,
+  source_password_hint VARCHAR(255) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE projects
+  ADD COLUMN IF NOT EXISTS client_logo_path VARCHAR(255) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS portal_url VARCHAR(255) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS source_url VARCHAR(255) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS source_username VARCHAR(160) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS source_password_hint VARCHAR(255) DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS scan_runs (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -55,19 +70,69 @@ CREATE TABLE IF NOT EXISTS findings (
 CREATE TABLE IF NOT EXISTS imports (
   id INT AUTO_INCREMENT PRIMARY KEY,
   project_id INT NOT NULL,
+  source_type ENUM('manual','url','upload') NOT NULL DEFAULT 'manual',
   source_name VARCHAR(80) NOT NULL,
+  source_detail VARCHAR(255) DEFAULT NULL,
+  artifact_path VARCHAR(255) DEFAULT NULL,
   file_name VARCHAR(255) NOT NULL,
   imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_import_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS integrations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  project_id INT NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  type ENUM('scanner','assistant','automation') NOT NULL DEFAULT 'scanner',
+  status ENUM('configured','ready','disabled') NOT NULL DEFAULT 'ready',
+  endpoint_url VARCHAR(255) DEFAULT NULL,
+  description TEXT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_integration_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+ALTER TABLE imports
+  ADD COLUMN IF NOT EXISTS source_type ENUM('manual','url','upload') NOT NULL DEFAULT 'manual',
+  ADD COLUMN IF NOT EXISTS source_detail VARCHAR(255) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS artifact_path VARCHAR(255) DEFAULT NULL;
+
 INSERT INTO users (email, display_name, password_sha256, role)
 SELECT 'admin@cyber-security.local', 'Security Admin', SHA2('ChangeMe123!', 256), 'admin'
 WHERE NOT EXISTS (SELECT 1 FROM users);
 
+INSERT INTO users (email, display_name, password_sha256, role)
+SELECT 'manager@cyber-security.local', 'Security Manager', SHA2('ChangeMe123!', 256), 'manager'
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'manager');
+
+INSERT INTO users (email, display_name, password_sha256, role)
+SELECT 'analyst@cyber-security.local', 'Security Analyst', SHA2('ChangeMe123!', 256), 'analyst'
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'analyst');
+
+INSERT INTO users (email, display_name, password_sha256, role)
+SELECT 'client@cyber-security.local', 'Client Viewer', SHA2('ChangeMe123!', 256), 'client'
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'client');
+
 INSERT INTO projects (name, client_name, repository_url, target_url)
 SELECT 'Client Portal', 'Acme Corporation', 'https://example.com/repo', 'https://example.com/app'
 WHERE NOT EXISTS (SELECT 1 FROM projects);
+
+UPDATE projects
+SET client_logo_path = COALESCE(client_logo_path, 'assets/img/cyber-logo.png'),
+    portal_url = COALESCE(portal_url, 'https://example.com/app'),
+    source_url = COALESCE(source_url, 'https://example.com/repo'),
+    source_username = COALESCE(source_username, 'devops@example.com'),
+    source_password_hint = COALESCE(source_password_hint, 'Provided separately to the delivery team')
+WHERE client_logo_path IS NULL OR portal_url IS NULL OR source_url IS NULL;
+
+INSERT INTO integrations (project_id, name, type, status, endpoint_url, description)
+SELECT p.id, 'MobSF', 'scanner', 'ready', 'http://localhost:8000', 'Mobile application static and dynamic analysis add-on.'
+FROM projects p
+WHERE NOT EXISTS (SELECT 1 FROM integrations WHERE name = 'MobSF');
+
+INSERT INTO integrations (project_id, name, type, status, endpoint_url, description)
+SELECT p.id, 'OASM Assistant', 'assistant', 'configured', 'https://oasm.example.local', 'Intelligence assistant integration for threat triage and guidance.'
+FROM projects p
+WHERE NOT EXISTS (SELECT 1 FROM integrations WHERE name = 'OASM Assistant');
 
 INSERT INTO scan_runs (project_id, scan_type, tool_name, status, started_at, completed_at, summary, raw_payload)
 SELECT p.id, 'sonarqube', 'SonarQube', 'completed', NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 3 DAY + INTERVAL 12 MINUTE,

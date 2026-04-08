@@ -24,6 +24,6 @@ function authenticateFromRequest(): void
         exit;
     }
 
-    header('Location: index.php');
+    header('Location: home.php');
     exit;
 }

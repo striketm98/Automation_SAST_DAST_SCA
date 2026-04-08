@@ -57,6 +57,17 @@ services:
       - ./:/src
       - dependency_check_reports:/report
 
+  mobsf:
+    image: opensecurity/mobile-security-framework-mobsf:latest
+    container_name: security-dashboard-mobsf
+    ports:
+      - "8000:8000"
+    volumes:
+      - mobsf_data:/home/mobsf/.MobSF
+    environment:
+      MOBSF_USER: mobsf
+      MOBSF_PASS: mobsf
+
 volumes:
   db_data:
   sonarqube_data:
@@ -64,3 +75,4 @@ volumes:
   sonarqube_logs:
   zap_reports:
   dependency_check_reports:
+  mobsf_data:
