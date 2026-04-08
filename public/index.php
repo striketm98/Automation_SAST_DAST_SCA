@@ -69,6 +69,7 @@ $user = currentUser();
       </div>
       <nav class="side-nav">
         <a class="side-link active" href="index.php">Dashboard</a>
+        <a class="side-link" href="scan_jobs.php">Scan jobs</a>
         <a class="side-link" href="report.php">Executive report</a>
         <a class="side-link" href="import.php">Import results</a>
       </nav>

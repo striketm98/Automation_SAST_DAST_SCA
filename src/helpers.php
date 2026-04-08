@@ -334,6 +334,172 @@ function toolHealth(string $endpointUrl): array
     return ['status' => 'partial', 'label' => 'Partial', 'detail' => $healthUrl];
 }
 
+function findIntegrationForScan(array $integrations, string $scanKind): ?array
+{
+    $scanKind = strtolower(trim($scanKind));
+    $profiles = match ($scanKind) {
+        'sast' => ['sonarqube'],
+        'sca' => ['dependency-check', 'dependency_check'],
+        'dast' => ['zap'],
+        'mobile' => ['mobsf'],
+        default => [],
+    };
+    $categories = match ($scanKind) {
+        'sast' => ['sast'],
+        'sca' => ['sca'],
+        'dast' => ['dast'],
+        'mobile' => ['mobile'],
+        default => [],
+    };
+
+    foreach ($integrations as $integration) {
+        $profile = strtolower((string) ($integration['integration_profile'] ?? ''));
+        if ($profile !== '' && in_array($profile, $profiles, true)) {
+            return $integration;
+        }
+    }
+
+    foreach ($integrations as $integration) {
+        $category = strtolower((string) ($integration['tool_category'] ?? ''));
+        if ($category !== '' && in_array($category, $categories, true)) {
+            return $integration;
+        }
+    }
+
+    return null;
+}
+
+function triggerScanFromUi(PDO $pdo, int $projectId, string $scanKind, string $targetUrl, string $sourceUrl, array $integrations): array
+{
+    $scanKind = strtolower(trim($scanKind));
+    $scanType = match ($scanKind) {
+        'sast' => 'sonarqube',
+        'sca' => 'sca',
+        'dast' => 'zap',
+        'mobile' => 'sast',
+        default => 'sast',
+    };
+    $toolLabel = match ($scanKind) {
+        'sast' => 'SAST',
+        'sca' => 'SCA',
+        'dast' => 'DAST',
+        'mobile' => 'Mobile APK',
+        default => strtoupper($scanKind),
+    };
+    $integration = findIntegrationForScan($integrations, $scanKind);
+    $integrationId = !empty($integration['id']) ? (int) $integration['id'] : null;
+    $toolName = (string) ($integration['name'] ?? ($toolLabel . ' Connector'));
+    $actor = (string) (currentUser()['email'] ?? 'system');
+
+    $summary = sprintf(
+        '%s scan initiated from UI by %s. Target: %s',
+        $toolLabel,
+        $actor,
+        $targetUrl !== '' ? $targetUrl : 'n/a'
+    );
+
+    $scanStmt = $pdo->prepare('INSERT INTO scan_runs (project_id, scan_type, tool_name, status, started_at, summary, raw_payload) VALUES (?, ?, ?, ?, NOW(), ?, ?)');
+    $scanStmt->execute([
+        $projectId,
+        $scanType,
+        $toolName,
+        'queued',
+        $summary,
+        json_encode(['scan_kind' => $scanKind, 'target_url' => $targetUrl, 'source_url' => $sourceUrl], JSON_UNESCAPED_SLASHES),
+    ]);
+    $scanRunId = (int) $pdo->lastInsertId();
+
+    $requestPayload = [
+        'project_id' => $projectId,
+        'scan_run_id' => $scanRunId,
+        'scan_kind' => $scanKind,
+        'target_url' => $targetUrl,
+        'source_url' => $sourceUrl,
+        'requested_by' => $actor,
+    ];
+
+    $jobStmt = $pdo->prepare('INSERT INTO scan_jobs (project_id, scan_run_id, integration_id, scan_kind, status, target_url, source_url, request_payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    $jobStmt->execute([
+        $projectId,
+        $scanRunId,
+        $integrationId,
+        $scanKind,
+        'queued',
+        $targetUrl !== '' ? $targetUrl : null,
+        $sourceUrl !== '' ? $sourceUrl : null,
+        json_encode($requestPayload, JSON_UNESCAPED_SLASHES),
+    ]);
+    $jobId = (int) $pdo->lastInsertId();
+
+    if (!$integration) {
+        return [
+            'ok' => true,
+            'message' => $toolLabel . ' scan queued in UI. Add connector details in Add-ons to submit automatically.',
+            'scan_run_id' => $scanRunId,
+            'job_id' => $jobId,
+        ];
+    }
+
+    $base = trim((string) ($integration['api_base_url'] ?? $integration['endpoint_url'] ?? ''));
+    $submitPath = trim((string) ($integration['scan_submit_url'] ?? ''));
+    if ($base === '') {
+        return [
+            'ok' => true,
+            'message' => $toolLabel . ' scan queued. Connector endpoint is not configured yet.',
+            'scan_run_id' => $scanRunId,
+            'job_id' => $jobId,
+        ];
+    }
+
+    $submitUrl = rtrim($base, '/');
+    if ($submitPath !== '') {
+        $submitUrl .= '/' . ltrim($submitPath, '/');
+    }
+
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/json\r\n",
+            'content' => json_encode($requestPayload, JSON_UNESCAPED_SLASHES),
+            'timeout' => 4,
+            'ignore_errors' => true,
+        ],
+    ]);
+
+    $response = @file_get_contents($submitUrl, false, $context);
+    if ($response === false) {
+        $pdo->prepare('UPDATE scan_jobs SET status = ?, error_message = ? WHERE id = ?')
+            ->execute(['queued', 'Connector unreachable. Job is queued for manual execution.', $jobId]);
+        return [
+            'ok' => true,
+            'message' => $toolLabel . ' scan queued. Connector is unreachable right now.',
+            'scan_run_id' => $scanRunId,
+            'job_id' => $jobId,
+        ];
+    }
+
+    $decodedResponse = json_decode($response, true);
+    $responsePayload = is_array($decodedResponse)
+        ? $decodedResponse
+        : ['raw_response' => substr($response, 0, 4000)];
+
+    $pdo->prepare('UPDATE scan_jobs SET status = ?, response_payload = ? WHERE id = ?')
+        ->execute(['submitted', json_encode($responsePayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $jobId]);
+    $pdo->prepare('UPDATE scan_runs SET status = ?, summary = ? WHERE id = ?')
+        ->execute([
+            'running',
+            sprintf('%s scan submitted to %s and is now running.', $toolLabel, $toolName),
+            $scanRunId,
+        ]);
+
+    return [
+        'ok' => true,
+        'message' => $toolLabel . ' scan submitted successfully.',
+        'scan_run_id' => $scanRunId,
+        'job_id' => $jobId,
+    ];
+}
+
 function logOasmHistory(PDO $pdo, ?int $projectId, ?int $assetId, string $action, string $details): void
 {
     if (!$projectId) {

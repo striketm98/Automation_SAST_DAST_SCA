@@ -136,6 +136,7 @@ $role = currentUserRole();
       </div>
       <nav class="side-nav">
         <a class="side-link" href="home.php">Dashboard</a>
+        <a class="side-link" href="scan_jobs.php">Scan jobs</a>
         <a class="side-link" href="audit.php">Audit</a>
         <a class="side-link active" href="checklist.php">Checklist</a>
         <a class="side-link" href="oasm.php">Open ASM</a>

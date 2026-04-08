@@ -91,6 +91,34 @@ final class Database
               ADD COLUMN IF NOT EXISTS details TEXT DEFAULT NULL
         ");
 
+        self::runSchemaStatement($pdo, "
+            ALTER TABLE findings
+              ADD COLUMN IF NOT EXISTS claim_state ENUM('unclaimed','claimed') NOT NULL DEFAULT 'unclaimed',
+              ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(160) DEFAULT NULL,
+              ADD COLUMN IF NOT EXISTS claimed_at DATETIME DEFAULT NULL,
+              ADD COLUMN IF NOT EXISTS ai_issue_summary TEXT DEFAULT NULL,
+              ADD COLUMN IF NOT EXISTS ai_remediation TEXT DEFAULT NULL,
+              ADD COLUMN IF NOT EXISTS validation_notes TEXT DEFAULT NULL
+        ");
+
+        self::runSchemaStatement($pdo, "
+            CREATE TABLE IF NOT EXISTS scan_jobs (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              project_id INT NOT NULL,
+              scan_run_id INT NOT NULL,
+              integration_id INT DEFAULT NULL,
+              scan_kind ENUM('sast','sca','dast','mobile') NOT NULL,
+              status ENUM('queued','submitted','running','completed','failed') NOT NULL DEFAULT 'queued',
+              target_url VARCHAR(255) DEFAULT NULL,
+              source_url VARCHAR(255) DEFAULT NULL,
+              request_payload JSON DEFAULT NULL,
+              response_payload JSON DEFAULT NULL,
+              error_message VARCHAR(255) DEFAULT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
         // Keep old databases compatible with the current app shape.
         self::runSchemaStatement($pdo, "
             ALTER TABLE integrations

@@ -18,6 +18,9 @@ if ($pdo) {
             $integrationStmt = $pdo->prepare('SELECT * FROM integrations WHERE project_id = ? ORDER BY created_at DESC');
             $integrationStmt->execute([$project['id']]);
             $integrations = $integrationStmt->fetchAll();
+            if (!$integrations) {
+                $integrations = sampleDashboard()['integrations'];
+            }
         } catch (Throwable $e) {
             $integrations = sampleDashboard()['integrations'];
         }
@@ -65,6 +68,9 @@ $user = currentUser();
 $role = currentUserRole();
 $canManage = in_array($role, ['admin', 'manager'], true);
 $canImport = in_array($role, ['admin', 'manager', 'analyst'], true);
+$homeMessage = $_SESSION['home_message'] ?? null;
+$homeError = $_SESSION['home_error'] ?? null;
+unset($_SESSION['home_message'], $_SESSION['home_error']);
 $toolReady = count(array_filter($integrations, fn($tool) => ($tool['status'] ?? '') === 'ready'));
 $toolTotal = count($integrations);
 $pentestService = null;
@@ -100,6 +106,7 @@ foreach ($integrations as $integration) {
       </div>
       <nav class="side-nav">
         <a class="side-link active" href="home.php">Dashboard</a>
+        <a class="side-link" href="scan_jobs.php">Scan jobs</a>
         <a class="side-link" href="report.php">Executive report</a>
         <a class="side-link" href="audit.php">Audit</a>
         <a class="side-link" href="deliverables.php">Deliverables</a>
@@ -144,7 +151,36 @@ foreach ($integrations as $integration) {
         </div>
       </section>
 
+      <?php if ($homeMessage): ?><div class="notice success"><?= e((string) $homeMessage) ?></div><?php endif; ?>
+      <?php if ($homeError): ?><div class="notice danger"><?= e((string) $homeError) ?></div><?php endif; ?>
+
       <section class="dashboard-grid premium-grid">
+        <?php if ($canImport): ?>
+          <article class="panel wide">
+            <div class="panel-header">
+              <h3>One-click scan launch</h3>
+              <span class="muted">Initiate SAST, SCA, DAST, and APK scan jobs directly from UI</span>
+            </div>
+            <form class="scan-launch-form" method="post" action="scan_trigger.php">
+              <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+              <label>
+                <span>Target URL (Web / API)</span>
+                <input type="url" name="target_url" value="<?= e((string) ($project['target_url'] ?? $project['portal_url'] ?? '')) ?>" placeholder="https://app.client.local">
+              </label>
+              <label>
+                <span>Source URL (Repo / APK location)</span>
+                <input type="url" name="source_url" value="<?= e((string) ($project['source_url'] ?? $project['repository_url'] ?? '')) ?>" placeholder="https://git.example.com/org/repo">
+              </label>
+              <div class="scan-launch-actions">
+                <button class="button" type="submit" name="scan_kind" value="sast">Run SAST</button>
+                <button class="button ghost" type="submit" name="scan_kind" value="sca">Run SCA</button>
+                <button class="button ghost" type="submit" name="scan_kind" value="dast">Run DAST</button>
+                <button class="button ghost" type="submit" name="scan_kind" value="mobile">Run APK Scan</button>
+              </div>
+            </form>
+          </article>
+        <?php endif; ?>
+
         <article class="panel wide">
           <div class="panel-header">
             <h3>Client access</h3>

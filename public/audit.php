@@ -25,20 +25,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($findingId <= 0 || !in_array($action, ['claim', 'suppress', 'unsuppress'], true)) {
             $_SESSION['audit_error'] = 'Invalid audit action.';
         } else {
-            $user = currentUser() ?? [];
-            $actor = (string) ($user['display_name'] ?? $user['email'] ?? 'analyst');
-            if ($action === 'claim') {
-                $stmt = $pdo->prepare('UPDATE findings SET claim_state = ?, claimed_by = ?, claimed_at = NOW() WHERE id = ?');
-                $stmt->execute(['claimed', $actor, $findingId]);
-                $_SESSION['audit_message'] = 'Finding claimed.';
-            } elseif ($action === 'suppress') {
-                $stmt = $pdo->prepare('UPDATE findings SET status = ? WHERE id = ?');
-                $stmt->execute(['false_positive', $findingId]);
-                $_SESSION['audit_message'] = 'Finding suppressed as false positive.';
-            } else {
-                $stmt = $pdo->prepare('UPDATE findings SET status = ? WHERE id = ?');
-                $stmt->execute(['open', $findingId]);
-                $_SESSION['audit_message'] = 'Finding unsuppressed and returned to open.';
+            try {
+                $user = currentUser() ?? [];
+                $actor = (string) ($user['display_name'] ?? $user['email'] ?? 'analyst');
+                if ($action === 'claim') {
+                    $stmt = $pdo->prepare('UPDATE findings SET claim_state = ?, claimed_by = ?, claimed_at = NOW() WHERE id = ?');
+                    $stmt->execute(['claimed', $actor, $findingId]);
+                    $_SESSION['audit_message'] = 'Finding claimed.';
+                } elseif ($action === 'suppress') {
+                    $stmt = $pdo->prepare('UPDATE findings SET status = ? WHERE id = ?');
+                    $stmt->execute(['false_positive', $findingId]);
+                    $_SESSION['audit_message'] = 'Finding suppressed as false positive.';
+                } else {
+                    $stmt = $pdo->prepare('UPDATE findings SET status = ? WHERE id = ?');
+                    $stmt->execute(['open', $findingId]);
+                    $_SESSION['audit_message'] = 'Finding unsuppressed and returned to open.';
+                }
+            } catch (Throwable $e) {
+                $_SESSION['audit_error'] = 'Database schema is being initialized. Please refresh and try again.';
             }
             header('Location: audit.php?finding=' . $findingId);
             exit;
@@ -61,6 +65,9 @@ if ($pdo) {
             $integrationStmt = $pdo->prepare('SELECT * FROM integrations WHERE project_id = ? ORDER BY created_at DESC');
             $integrationStmt->execute([$project['id']]);
             $integrations = $integrationStmt->fetchAll();
+            if (!$integrations) {
+                $integrations = sampleDashboard()['integrations'];
+            }
         } catch (Throwable $e) {
             $integrations = sampleDashboard()['integrations'];
         }
@@ -280,6 +287,7 @@ if (!empty($_GET['finding']) && isset($findingMap[(int) $_GET['finding']])) {
       </div>
       <nav class="side-nav">
         <a class="side-link" href="home.php">Dashboard</a>
+        <a class="side-link" href="scan_jobs.php">Scan jobs</a>
         <a class="side-link" href="report.php">Executive report</a>
         <a class="side-link active" href="audit.php">Audit</a>
         <a class="side-link" href="deliverables.php">Deliverables</a>
