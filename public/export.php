@@ -42,16 +42,21 @@ if ($format === 'csv') {
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="security-report.csv"');
     $out = fopen('php://output', 'wb');
-    fputcsv($out, ['Severity', 'Title', 'Category', 'File', 'Line', 'Description', 'Recommendation']);
+    fputcsv($out, ['Severity', 'Status', 'CWE', 'Title', 'Category', 'File', 'Line', 'Description', 'Recommendation', 'Analyst Comment', 'AI Summary', 'AI Confidence']);
     foreach ($findings as $finding) {
         fputcsv($out, [
             $finding['severity'] ?? '',
+            $finding['status'] ?? '',
+            $finding['cwe_id'] ?? '',
             $finding['title'] ?? '',
             $finding['category'] ?? '',
             $finding['file_path'] ?? '',
             $finding['line_number'] ?? '',
             $finding['description'] ?? '',
             $finding['recommendation'] ?? '',
+            $finding['analyst_comment'] ?? '',
+            $finding['ai_summary'] ?? '',
+            $finding['ai_confidence'] ?? '',
         ]);
     }
     fclose($out);

@@ -30,6 +30,10 @@ if ($useSample) {
     $findings = $dashboard['findings'];
 }
 
+$reviewError = $_SESSION['review_error'] ?? null;
+$reviewSuccess = $_SESSION['review_success'] ?? null;
+unset($_SESSION['review_error'], $_SESSION['review_success']);
+
 $critical = count(array_filter($findings, fn($f) => $f['severity'] === 'critical'));
 $high = count(array_filter($findings, fn($f) => $f['severity'] === 'high'));
 $medium = count(array_filter($findings, fn($f) => $f['severity'] === 'medium'));
@@ -62,6 +66,9 @@ $open = count($findings);
       </div>
     </header>
 
+    <?php if ($reviewSuccess): ?><div class="notice success"><?= e((string) $reviewSuccess) ?></div><?php endif; ?>
+    <?php if ($reviewError): ?><div class="notice danger"><?= e((string) $reviewError) ?></div><?php endif; ?>
+
     <section class="report-summary">
       <div class="summary-card"><span>Open findings</span><strong><?= (int) $open ?></strong></div>
       <div class="summary-card"><span>Critical</span><strong><?= (int) $critical ?></strong></div>
@@ -82,23 +89,74 @@ $open = count($findings);
       </div>
     </section>
 
+    <section class="panel">
+      <div class="panel-header">
+        <h3>CWE coverage</h3>
+        <span class="muted">AI-assisted triage included</span>
+      </div>
+      <div class="tag-cloud">
+        <?php foreach (cweCatalog() as $cwe => $label): ?>
+          <span class="tag"><?= e($cwe . ' ' . $label) ?></span>
+        <?php endforeach; ?>
+      </div>
+    </section>
+
     <section class="panel wide">
       <div class="panel-header">
         <h3>Findings</h3>
+        <span class="muted">Use the review box to mark false positives, add comments, and store AI notes.</span>
       </div>
       <div class="report-findings">
         <?php foreach ($findings as $finding): ?>
           <article class="finding-card <?= e(severityClass((string) $finding['severity'])) ?>">
             <div class="finding-head">
               <strong><?= e((string) $finding['title']) ?></strong>
-              <span class="tag"><?= e(strtoupper((string) $finding['severity'])) ?></span>
+              <div class="finding-badges">
+                <span class="tag <?= e(findingStatusClass((string) ($finding['status'] ?? 'open'))) ?>"><?= e(strtoupper(str_replace('_', ' ', (string) ($finding['status'] ?? 'open')))) ?></span>
+                <span class="tag"><?= e(strtoupper((string) $finding['severity'])) ?></span>
+              </div>
             </div>
             <p><?= e((string) $finding['description']) ?></p>
             <p class="recommendation"><strong>Recommendation:</strong> <?= e((string) $finding['recommendation']) ?></p>
+            <?php if (!empty($finding['ai_summary'])): ?>
+              <p class="ai-summary"><strong>AI triage:</strong> <?= e((string) $finding['ai_summary']) ?><?php if (!empty($finding['ai_confidence'])): ?> (<?= (int) $finding['ai_confidence'] ?>%)<?php endif; ?></p>
+            <?php endif; ?>
             <div class="finding-foot">
               <span><?= e((string) $finding['category']) ?></span>
               <span><?= e((string) ($finding['file_path'] ?? 'n/a')) ?><?= !empty($finding['line_number']) ? ':' . (int) $finding['line_number'] : '' ?></span>
             </div>
+            <form class="review-form" method="post" action="review.php">
+              <input type="hidden" name="csrf_token" value="<?= e(csrfToken()) ?>">
+              <input type="hidden" name="finding_id" value="<?= (int) $finding['id'] ?>">
+              <label>
+                <span>Status</span>
+                <select name="status">
+                  <option value="open" <?= (($finding['status'] ?? 'open') === 'open') ? 'selected' : '' ?>>Open</option>
+                  <option value="false_positive" <?= (($finding['status'] ?? '') === 'false_positive') ? 'selected' : '' ?>>False positive</option>
+                  <option value="accepted_risk" <?= (($finding['status'] ?? '') === 'accepted_risk') ? 'selected' : '' ?>>Accepted risk</option>
+                  <option value="resolved" <?= (($finding['status'] ?? '') === 'resolved') ? 'selected' : '' ?>>Resolved</option>
+                </select>
+              </label>
+              <label>
+                <span>CWE</span>
+                <input type="text" name="cwe_id" value="<?= e((string) ($finding['cwe_id'] ?? '')) ?>" placeholder="CWE-78">
+              </label>
+              <label class="full">
+                <span>Analyst comment</span>
+                <textarea name="analyst_comment" rows="3" placeholder="Why is this marked false positive or what should be done next?"><?= e((string) ($finding['analyst_comment'] ?? '')) ?></textarea>
+              </label>
+              <label class="full">
+                <span>AI summary</span>
+                <textarea name="ai_summary" rows="2" placeholder="AI triage note"><?= e((string) ($finding['ai_summary'] ?? '')) ?></textarea>
+              </label>
+              <label>
+                <span>AI confidence</span>
+                <input type="number" name="ai_confidence" min="0" max="100" value="<?= (int) ($finding['ai_confidence'] ?? 0) ?>">
+              </label>
+              <div class="review-actions">
+                <button class="button ghost" type="submit">Save review</button>
+              </div>
+            </form>
           </article>
         <?php endforeach; ?>
       </div>
@@ -107,6 +165,7 @@ $open = count($findings);
     <section class="panel wide">
       <div class="panel-header">
         <h3>Scan timeline</h3>
+        <span class="muted">Includes safe labels for injection-style findings without exploit detail</span>
       </div>
       <div class="timeline">
         <?php foreach ($scanRuns as $run): ?>

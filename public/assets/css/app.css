@@ -208,6 +208,47 @@ th { color: var(--muted); font-weight: 600; }
 .finding-head { margin-bottom: 10px; }
 .finding-foot { margin-top: 12px; font-size: 0.9rem; }
 .recommendation { color: #dce6fb; }
+.finding-badges { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.ai-summary { color: #d9e7ff; margin-top: 12px; }
+
+.review-form {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.review-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.review-form .full { grid-column: 1 / -1; }
+
+.review-form input, .review-form select, .review-form textarea {
+  padding: 12px 14px;
+  border-radius: 14px;
+}
+
+.review-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tag-open { background: rgba(105, 210, 255, 0.14); color: #bfeaff; }
+.tag-false-positive { background: rgba(255, 207, 95, 0.14); color: #ffe7a0; }
+.tag-risk { background: rgba(255, 140, 77, 0.14); color: #ffd1b5; }
+.tag-resolved { background: rgba(125,255,178,0.14); color: var(--accent-2); }
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 
 .report-page .summary-card { min-height: 118px; }
 .report-summary {
@@ -700,6 +741,9 @@ body {
   .login-card { padding: 20px; }
   .login-hero { padding: 20px; }
   .login-metrics { gap: 10px; }
+  .review-form { grid-template-columns: 1fr; }
+  .review-actions { justify-content: stretch; }
+  .review-actions .button { width: 100%; }
 }
 
 @media (max-width: 520px) {
