@@ -1,4 +1,31 @@
 document.addEventListener("DOMContentLoaded", () => {
+  const autoRefreshMs = Number(document.body?.getAttribute("data-auto-refresh") || 0);
+  const autoRefreshToggle = document.querySelector("[data-auto-refresh-toggle]");
+  if (Number.isFinite(autoRefreshMs) && autoRefreshMs >= 5000) {
+    const autoRefreshKey = "scan_jobs_auto_refresh";
+    let enabled = localStorage.getItem(autoRefreshKey) !== "off";
+
+    const syncAutoRefreshLabel = () => {
+      if (!autoRefreshToggle) return;
+      autoRefreshToggle.textContent = `Auto-refresh: ${enabled ? "On" : "Off"}`;
+      autoRefreshToggle.setAttribute("aria-pressed", enabled ? "true" : "false");
+    };
+
+    syncAutoRefreshLabel();
+
+    autoRefreshToggle?.addEventListener("click", () => {
+      enabled = !enabled;
+      localStorage.setItem(autoRefreshKey, enabled ? "on" : "off");
+      syncAutoRefreshLabel();
+    });
+
+    setInterval(() => {
+      if (enabled) {
+        window.location.reload();
+      }
+    }, autoRefreshMs);
+  }
+
   document.querySelectorAll("[data-copy]").forEach((button) => {
     button.addEventListener("click", async () => {
       const target = document.querySelector(button.getAttribute("data-copy"));

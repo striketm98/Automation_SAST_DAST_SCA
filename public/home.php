@@ -172,6 +172,7 @@ foreach ($integrations as $integration) {
                 <input type="url" name="source_url" value="<?= e((string) ($project['source_url'] ?? $project['repository_url'] ?? '')) ?>" placeholder="https://git.example.com/org/repo">
               </label>
               <div class="scan-launch-actions">
+                <button class="button" type="submit" name="scan_kind" value="suite">Run AppSec Suite</button>
                 <button class="button" type="submit" name="scan_kind" value="sast">Run SAST</button>
                 <button class="button ghost" type="submit" name="scan_kind" value="sca">Run SCA</button>
                 <button class="button ghost" type="submit" name="scan_kind" value="dast">Run DAST</button>

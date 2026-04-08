@@ -17,6 +17,18 @@ $canManage = in_array($role, ['admin', 'manager'], true);
 
 if ($pdo) {
     $project = $pdo->query('SELECT * FROM projects ORDER BY id DESC LIMIT 1')->fetch() ?: null;
+    if ($project) {
+        try {
+            $integrationStmt = $pdo->prepare('SELECT * FROM integrations WHERE project_id = ? ORDER BY created_at DESC');
+            $integrationStmt->execute([(int) $project['id']]);
+            $integrations = $integrationStmt->fetchAll() ?: [];
+            if (!$integrations) {
+                $integrations = sampleDashboard()['integrations'];
+            }
+        } catch (Throwable $e) {
+            $integrations = sampleDashboard()['integrations'];
+        }
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -121,6 +133,42 @@ if ($pdo && !empty($project['id'])) {
     }
 }
 
+$findingByKind = [
+    'sast' => ['total' => 0, 'false_positive' => 0],
+    'sca' => ['total' => 0, 'false_positive' => 0],
+    'dast' => ['total' => 0, 'false_positive' => 0],
+    'mobile' => ['total' => 0, 'false_positive' => 0],
+];
+
+if ($pdo && !empty($project['id'])) {
+    try {
+        $findingMixStmt = $pdo->prepare('
+            SELECT f.status, f.category, s.scan_type
+            FROM findings f
+            INNER JOIN scan_runs s ON s.id = f.scan_run_id
+            WHERE s.project_id = ?
+        ');
+        $findingMixStmt->execute([(int) $project['id']]);
+        $findingMix = $findingMixStmt->fetchAll() ?: [];
+        foreach ($findingMix as $row) {
+            $scanType = strtolower((string) ($row['scan_type'] ?? ''));
+            $category = strtolower((string) ($row['category'] ?? ''));
+            $kind = match (true) {
+                str_contains($category, 'mobile') => 'mobile',
+                $scanType === 'zap' || $scanType === 'dast' => 'dast',
+                $scanType === 'sca' || $category === 'sca' => 'sca',
+                default => 'sast',
+            };
+            $findingByKind[$kind]['total']++;
+            if ((string) ($row['status'] ?? '') === 'false_positive') {
+                $findingByKind[$kind]['false_positive']++;
+            }
+        }
+    } catch (Throwable $e) {
+        // Keep zeroed counters when query is unavailable.
+    }
+}
+
 $statusCount = [
     'queued' => count(array_filter($jobs, fn($row) => (string) ($row['status'] ?? '') === 'queued')),
     'submitted' => count(array_filter($jobs, fn($row) => (string) ($row['status'] ?? '') === 'submitted')),
@@ -147,6 +195,29 @@ $statusClass = static function (string $status): string {
         default => 'tag-false-positive',
     };
 };
+
+$latestJobsByKind = [];
+foreach ($jobs as $job) {
+    $kind = strtolower((string) ($job['scan_kind'] ?? ''));
+    if (!isset($latestJobsByKind[$kind])) {
+        $latestJobsByKind[$kind] = $job;
+    }
+}
+
+$pipelineTools = [
+    ['label' => 'SonarQube', 'kind' => 'sast', 'ai_checks' => ['Validate code-quality gate and security hotspots.', 'Map findings to CWE and verify remediation owner.']],
+    ['label' => 'OWASP ZAP', 'kind' => 'dast', 'ai_checks' => ['Review authenticated and unauthenticated attack paths.', 'Validate reflected/stored issues and tag false positives.']],
+    ['label' => 'MobSF', 'kind' => 'mobile', 'ai_checks' => ['Confirm APK signature, manifest, and insecure components.', 'Review secrets/storage/network findings and retest notes.']],
+];
+
+$pipelineStageClass = static function (string $state): string {
+    return match ($state) {
+        'done' => 'tag-resolved',
+        'active' => 'tag-open',
+        'alert' => 'tag-risk',
+        default => 'tag-false-positive',
+    };
+};
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -157,7 +228,7 @@ $statusClass = static function (string $status): string {
   <link rel="icon" href="assets/img/cyber-logo.png">
   <link rel="stylesheet" href="assets/css/app.css">
 </head>
-<body class="audit-page">
+<body class="audit-page" data-auto-refresh="10000">
   <div class="app-shell audit-shell">
     <aside class="sidebar">
       <div class="brand-lockup sidebar-brand">
@@ -193,6 +264,7 @@ $statusClass = static function (string $status): string {
         </div>
         <div class="topbar-actions">
           <span class="status-chip"><?= e(ucfirst($role)) ?></span>
+          <button class="status-chip auto-refresh-toggle" type="button" data-auto-refresh-toggle data-auto-refresh-default="on">Auto-refresh: On</button>
           <a class="button ghost" href="home.php">Back to dashboard</a>
           <a class="button" href="import.php">Import results</a>
           <span class="user-badge"><?= e(strtoupper(substr((string) ($user['display_name'] ?? 'A'), 0, 2))) ?></span>
@@ -215,6 +287,72 @@ $statusClass = static function (string $status): string {
 
       <?php if ($message): ?><div class="notice success"><?= e((string) $message) ?></div><?php endif; ?>
       <?php if ($error): ?><div class="notice danger"><?= e((string) $error) ?></div><?php endif; ?>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h3>Tool live status</h3>
+          <span class="muted">Current connector health and pipeline stage visibility</span>
+        </div>
+        <div class="tool-live-grid">
+          <?php foreach ($pipelineTools as $tool): ?>
+            <?php
+              $integration = findIntegrationForScan($integrations, $tool['kind']);
+              $endpoint = (string) ($integration['endpoint_url'] ?? $integration['api_base_url'] ?? '');
+              $health = toolHealth($endpoint);
+              $job = $latestJobsByKind[$tool['kind']] ?? null;
+              $jobStatus = strtolower((string) ($job['status'] ?? 'queued'));
+              $issueCount = (int) ($findingByKind[$tool['kind']]['total'] ?? 0);
+              $fpCount = (int) ($findingByKind[$tool['kind']]['false_positive'] ?? 0);
+              $stageStart = $job ? 'done' : 'todo';
+              $stageProgress = in_array($jobStatus, ['submitted', 'running'], true) ? 'active' : (in_array($jobStatus, ['completed', 'failed'], true) ? 'done' : 'todo');
+              $stageIssue = $issueCount > 0 ? 'alert' : ($job ? 'done' : 'todo');
+              $stageFp = $fpCount > 0 ? 'active' : ($issueCount > 0 ? 'todo' : 'todo');
+              $stageReport = in_array($jobStatus, ['completed'], true) ? 'done' : (in_array($jobStatus, ['running', 'submitted'], true) ? 'active' : 'todo');
+              $stageDeliver = in_array($jobStatus, ['completed'], true) ? 'done' : 'todo';
+              $progress = 0;
+              $progress += $job ? 15 : 0; // started
+              $progress += in_array($jobStatus, ['submitted', 'running', 'completed'], true) ? 20 : 0; // in progress
+              $progress += $issueCount > 0 ? 20 : (in_array($jobStatus, ['completed'], true) ? 10 : 0); // issue detection pass
+              $progress += $fpCount > 0 ? 15 : ($issueCount > 0 ? 8 : 0); // FP analysis
+              $progress += in_array($jobStatus, ['completed'], true) ? 20 : (in_array($jobStatus, ['running', 'submitted'], true) ? 8 : 0); // report
+              $progress += in_array($jobStatus, ['completed'], true) ? 10 : 0; // deliverable
+              if ($jobStatus === 'failed') {
+                  $progress = min($progress, 45);
+              }
+              $progress = max(0, min(100, $progress));
+            ?>
+            <article class="tool-live-card">
+              <div class="tool-live-head">
+                <strong><?= e($tool['label']) ?></strong>
+                <span class="tag <?= e($statusClass((string) ($job['status'] ?? 'queued'))) ?>"><?= e(strtoupper((string) ($job['status'] ?? 'queued'))) ?></span>
+              </div>
+              <p class="muted"><?= e($integration['name'] ?? 'Connector pending') ?> | <?= e($health['label']) ?></p>
+              <p class="muted"><?= e($health['detail']) ?></p>
+              <div class="progress-head"><span>Pipeline progress</span><strong><?= (int) $progress ?>%</strong></div>
+              <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<?= (int) $progress ?>">
+                <i style="width: <?= (int) $progress ?>%"></i>
+              </div>
+              <div class="tool-stats">
+                <span class="tag">Issues: <?= (int) $issueCount ?></span>
+                <span class="tag">FP: <?= (int) $fpCount ?></span>
+              </div>
+              <div class="pipeline-strip">
+                <span class="tag <?= e($pipelineStageClass($stageStart)) ?>">Scan start</span>
+                <span class="tag <?= e($pipelineStageClass($stageProgress)) ?>">Progress</span>
+                <span class="tag <?= e($pipelineStageClass($stageIssue)) ?>">Issue found</span>
+                <span class="tag <?= e($pipelineStageClass($stageFp)) ?>">FP analysis</span>
+                <span class="tag <?= e($pipelineStageClass($stageReport)) ?>">Report</span>
+                <span class="tag <?= e($pipelineStageClass($stageDeliver)) ?>">Deliverable</span>
+              </div>
+              <div class="ai-checks">
+                <?php foreach ($tool['ai_checks'] as $check): ?>
+                  <p><?= e($check) ?></p>
+                <?php endforeach; ?>
+              </div>
+            </article>
+          <?php endforeach; ?>
+        </div>
+      </section>
 
       <section class="panel">
         <div class="panel-header">

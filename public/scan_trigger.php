@@ -27,7 +27,7 @@ $scanKind = strtolower(trim((string) ($_POST['scan_kind'] ?? '')));
 $targetUrl = trim((string) ($_POST['target_url'] ?? ''));
 $sourceUrl = trim((string) ($_POST['source_url'] ?? ''));
 
-if (!in_array($scanKind, ['sast', 'sca', 'dast', 'mobile'], true)) {
+if (!in_array($scanKind, ['sast', 'sca', 'dast', 'mobile', 'suite'], true)) {
     $_SESSION['home_error'] = 'Invalid scan type selected.';
     header('Location: home.php');
     exit;
@@ -50,19 +50,44 @@ try {
         $integrations = [];
     }
 
-    $result = triggerScanFromUi(
-        $pdo,
-        (int) $project['id'],
-        $scanKind,
-        $targetUrl,
-        $sourceUrl,
-        $integrations
-    );
-
-    if (!empty($result['ok'])) {
-        $_SESSION['home_message'] = (string) ($result['message'] ?? 'Scan was initiated from UI.');
+    if ($scanKind === 'suite') {
+        $kinds = ['sast', 'dast', 'mobile']; // SonarQube + OWASP ZAP + MobSF
+        $messages = [];
+        $failed = false;
+        foreach ($kinds as $kind) {
+            $result = triggerScanFromUi(
+                $pdo,
+                (int) $project['id'],
+                $kind,
+                $targetUrl,
+                $sourceUrl,
+                $integrations
+            );
+            $messages[] = (string) ($result['message'] ?? strtoupper($kind) . ' trigger sent.');
+            if (empty($result['ok'])) {
+                $failed = true;
+            }
+        }
+        if ($failed) {
+            $_SESSION['home_error'] = 'Suite trigger completed with partial failures. ' . implode(' ', $messages);
+        } else {
+            $_SESSION['home_message'] = 'SonarQube + OWASP ZAP + MobSF suite started. ' . implode(' ', $messages);
+        }
     } else {
-        $_SESSION['home_error'] = (string) ($result['message'] ?? 'Unable to initiate scan.');
+        $result = triggerScanFromUi(
+            $pdo,
+            (int) $project['id'],
+            $scanKind,
+            $targetUrl,
+            $sourceUrl,
+            $integrations
+        );
+
+        if (!empty($result['ok'])) {
+            $_SESSION['home_message'] = (string) ($result['message'] ?? 'Scan was initiated from UI.');
+        } else {
+            $_SESSION['home_error'] = (string) ($result['message'] ?? 'Unable to initiate scan.');
+        }
     }
 } catch (Throwable $e) {
     $_SESSION['home_error'] = 'Unable to initiate scan right now. Please try again.';
